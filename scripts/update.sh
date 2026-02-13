@@ -43,8 +43,8 @@ git pull origin main --quiet >> "$LOG_FILE" 2>&1
 # Install dependencies (if package-lock.json changed)
 npm ci --production=false >> "$LOG_FILE" 2>&1
 
-# Rebuild
-npm run build >> "$LOG_FILE" 2>&1
+# Rebuild (use --webpack flag for armv7l/WASM compatibility)
+npx next build --webpack >> "$LOG_FILE" 2>&1
 
 if [ $? -eq 0 ]; then
   # Restart PM2 app

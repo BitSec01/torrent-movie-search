@@ -37,14 +37,16 @@ export async function searchTorrents(
         // Some providers may fail to get magnet
       }
 
+      // The runtime torrent objects have seeds/peers/link but the type defs are incomplete
+      const raw = r as unknown as Record<string, unknown>;
       torrents.push({
         title: r.title ?? "",
         provider: r.provider ?? "",
-        seeds: Number(r.seeds) || 0,
-        peers: Number(r.peers) || 0,
+        seeds: Number(raw.seeds) || 0,
+        peers: Number(raw.peers) || 0,
         size: r.size ?? "",
         magnet: magnet || undefined,
-        link: r.link || r.desc || undefined,
+        link: (raw.link as string) || r.desc || undefined,
       });
     }
 
