@@ -45,6 +45,25 @@ export const account = sqliteTable("account", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const download = sqliteTable("download", {
+  id: text("id").primaryKey(),
+  hash: text("hash").notNull().unique(),
+  magnet: text("magnet").notNull(),
+  title: text("title").notNull(),
+  year: text("year"),
+  type: text("type").notNull(), // "movie" | "series"
+  imdbId: text("imdb_id"),
+  poster: text("poster"),
+  totalSeasons: text("total_seasons"),
+  torrentName: text("torrent_name"), // original name from qBittorrent
+  originalPath: text("original_path"), // path in /mnt/storage/torrents
+  destinationPath: text("destination_path"), // final path in Movies or Series
+  status: text("status").notNull().default("downloading"), // downloading | completed | organizing | organized | failed
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const verification = sqliteTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

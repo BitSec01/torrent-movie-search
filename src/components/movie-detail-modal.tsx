@@ -6,6 +6,15 @@ import { useMovieDetail } from "@/hooks/use-movie-detail";
 import { useTorrentStatuses, extractHash, type TorrentStatus } from "@/hooks/use-download-status";
 import type { TorrentLink } from "@/lib/api/types";
 
+interface MovieMeta {
+  title: string;
+  year: string;
+  type: string;
+  imdbId: string;
+  poster: string | null;
+  totalSeasons?: string;
+}
+
 interface MovieDetailModalProps {
   imdbId: string | null;
   torrentLinks?: TorrentLink[];
@@ -268,7 +277,19 @@ export function MovieDetailModal({ imdbId, torrentLinks, onClose }: MovieDetailM
                     </h3>
                     <div className="space-y-2">
                       {torrentLinks.map((t, i) => (
-                        <TorrentRow key={i} torrent={t} qbtStatus={matchedTorrents[i] ?? undefined} />
+                        <TorrentRow
+                          key={i}
+                          torrent={t}
+                          qbtStatus={matchedTorrents[i] ?? undefined}
+                          movieMeta={detail ? {
+                            title: detail.title,
+                            year: detail.year,
+                            type: detail.type,
+                            imdbId: detail.imdbId,
+                            poster: detail.poster,
+                            totalSeasons: detail.totalSeasons,
+                          } : undefined}
+                        />
                       ))}
                     </div>
                   </div>
@@ -334,7 +355,7 @@ function TorrentInlineStatus({ status }: { status: TorrentStatus }) {
   );
 }
 
-function TorrentRow({ torrent: t, qbtStatus }: { torrent: TorrentLink; qbtStatus?: TorrentStatus }) {
+function TorrentRow({ torrent: t, qbtStatus, movieMeta }: { torrent: TorrentLink; qbtStatus?: TorrentStatus; movieMeta?: MovieMeta }) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState<"idle" | "loading" | "done" | "error">("idle");
 
@@ -364,7 +385,10 @@ function TorrentRow({ torrent: t, qbtStatus }: { torrent: TorrentLink; qbtStatus
       const res = await fetch("/api/torrents/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ magnet: t.magnet }),
+        body: JSON.stringify({
+          magnet: t.magnet,
+          ...(movieMeta ?? {}),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
