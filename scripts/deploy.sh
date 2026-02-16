@@ -39,8 +39,11 @@ remote "mkdir -p $PI_DIR/logs $PI_DIR/.next/static $PI_DIR/public 2>/dev/null ||
 # Back up .env before sync
 remote "cp $PI_DIR/.env /tmp/.env.torrent-backup 2>/dev/null || true"
 
-# Sync standalone server (includes minimal node_modules + server.js)
+# Sync standalone server (excludes native modules that are compiled on the Pi)
 rsync -az -e "$RSYNC_SSH" \
+  --exclude='node_modules/better-sqlite3' \
+  --exclude='node_modules/bindings' \
+  --exclude='node_modules/file-uri-to-path' \
   .next/standalone/ \
   "$PI_USER@$PI_HOST:$PI_DIR/"
 
