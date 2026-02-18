@@ -82,6 +82,10 @@ const downloadInputSchema = z.object({
   magnet: z.string().describe("The magnet link to send to qBittorrent for downloading"),
   title: z.string().describe("The name of the movie/torrent being downloaded, for display purposes"),
   contentType: z.enum(["movie", "series"]).describe("Whether this is a movie or a series/episode. Movies go to /mnt/storage/Movies, series go to /mnt/storage/torrents"),
+  year: z.string().optional().describe("The year of the movie/series, if known"),
+  imdbId: z.string().optional().describe("The IMDb ID of the movie/series, if known"),
+  poster: z.string().optional().describe("The poster URL, if known"),
+  totalSeasons: z.string().optional().describe("Total seasons for series, if known"),
 });
 
 /** Strip punctuation & collapse whitespace for fuzzy title matching */
@@ -181,15 +185,32 @@ export async function POST(req: Request) {
         description:
           "Send a magnet link to qBittorrent to start downloading. You MUST call searchTorrents first to get the torrent list, review it, and pick the correct matching torrent. Set contentType to 'movie' or 'series' for correct save path.",
         inputSchema: zodSchema(downloadInputSchema),
-        execute: async ({ magnet, title, contentType }: z.infer<typeof downloadInputSchema>) => {
+        execute: async ({ magnet, title, contentType, year, imdbId, poster, totalSeasons }: z.infer<typeof downloadInputSchema>) => {
           const savePath = contentType === "movie" ? "/mnt/storage/Movies" : "/mnt/storage/torrents";
           console.log("[AI Tool] downloadTorrent called for:", title, "→", savePath);
           try {
-            const result = await addTorrent(magnet, savePath);
-            if (result.success) {
-              return { success: true, message: `Started downloading: ${title}`, savePath };
+            // Call the download endpoint to ensure it's recorded in the library
+            const downloadRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/torrents/download`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                magnet,
+                title,
+                year,
+                type: contentType,
+                imdbId,
+                poster,
+                totalSeasons,
+              }),
+            });
+            
+            if (downloadRes.ok) {
+              const result = await downloadRes.json();
+              return { success: true, message: result.message || `Started downloading: ${title}`, savePath };
+            } else {
+              const error = await downloadRes.json();
+              return { success: false, message: error.error || "Failed to download" };
             }
-            return { success: false, message: result.message };
           } catch (err) {
             const msg = err instanceof Error ? err.message : "Unknown error";
             return { success: false, message: msg };

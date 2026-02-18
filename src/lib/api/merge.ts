@@ -77,7 +77,7 @@ export function mergeDetail(
     year: omdb?.Year ?? top?.year?.toString() ?? short?.datePublished?.slice(0, 4) ?? "",
     rated: omdb?.Rated !== "N/A" ? omdb?.Rated : undefined,
     released: omdb?.Released !== "N/A" ? omdb?.Released : short?.datePublished,
-    runtime: omdb?.Runtime !== "N/A" ? omdb?.Runtime : short?.duration ?? top?.runtime,
+    runtime: omdb?.Runtime !== "N/A" ? omdb?.Runtime : "",
     genres:
       omdb?.Genre && omdb.Genre !== "N/A"
         ? omdb.Genre.split(",").map((g) => g.trim())
