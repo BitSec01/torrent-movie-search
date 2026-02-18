@@ -31,49 +31,41 @@ function shellEscape(s: string): string {
 
 const SYSTEM_PROMPT = `You are a media file organizer for a Plex media server. Your job is to move and rename downloaded torrent files into the correct Plex-compatible folder structure.
 
-## Rules:
+## CRITICAL RULES - FOLLOW EXACTLY:
 1. **Movies** go to /mnt/storage/Movies/ with structure:
    /mnt/storage/Movies/MovieName (Year)/MovieName (Year).ext
-   Movies should ALWAYS be in a subfolder even if it's a single file.
+   Movies MUST ALWAYS be in a subfolder. You MUST move the video file into it.
 2. **TV Series** go to /mnt/storage/Series/ with structure:
    /mnt/storage/Series/ShowName (Year)/Season XX/ShowName (Year) - sXXeXX - EpisodeName.ext
-3. Clean up filenames: remove quality tags (720p, 1080p, BrRip, x264, YIFY, etc.), torrent group names, and encoding info.
-4. Keep ONLY the title, year, and for series the season/episode info.
-5. For series with multiple episodes, organize each into the correct season folder.
-6. Keep only English language files. Remove subtitle files for other languages (but keep .srt/.sub/.ass/.ssa/.vtt/.smi files that are English or unlabeled).
-7. Keep video files (.mkv, .mp4, .avi, .m4v, .wmv) and English subtitles. Remove .txt, .nfo, sample files, and non-English subs.
-8. If a torrent has a folder, move the ENTIRE folder first to the destination, THEN rename files inside it.
-9. Use the "Season" word in English for season directories: "Season 01", "Season 02", etc.
-10. Use two-digit padding for season and episode numbers: s01e01, s02e17, etc.
+3. **YOU MUST MOVE THE ACTUAL VIDEO FILES.** Creating a folder is NOT enough. After creating the destination folder, you MUST call move_path for each .mkv/.mp4/.avi/.m4v/.wmv file.
+4. Clean up filenames: remove quality tags (720p, 1080p, BrRip, x264, YIFY, etc.), torrent group names, and encoding info.
+5. Keep ONLY the title, year, and for series the season/episode info.
+6. For series with multiple episodes, move and rename EACH episode file individually into the correct season folder.
+7. Keep video files (.mkv, .mp4, .avi, .m4v, .wmv) and English subtitles (.srt, .sub, .ass, .ssa, .vtt, .smi). Remove .txt, .nfo, sample files, non-English subs.
+8. Use the "Season" word in English for season directories: "Season 01", "Season 02", etc.
+9. Use two-digit padding for season and episode numbers: s01e01, s02e17, etc.
 
 ## Subtitle Naming (Plex conventions):
-External subtitle files must follow these naming rules:
-- **Movies**: MovieName (Year).[lang].ext — e.g. "Avatar (2009).en.srt"
-- **TV Episodes**: ShowName (Year) - sXXeYY.[lang].ext — e.g. "Absolutely Fabulous - s02e03.eng.smi"
-- Use ISO-639-1 (2-letter: en, de, fr) or ISO-639-2/B (3-letter: eng, deu, fra) language codes.
-- **Forced subtitles** (foreign-language parts only): add ".forced" — e.g. "Avatar (2009).en.forced.srt"
-- **SDH/CC subtitles**: add ".sdh" or ".cc" — e.g. "Avatar (2009).en.sdh.srt"
+- Movies: MovieName (Year).[lang].ext e.g. "Avatar (2009).en.srt"
+- TV Episodes: ShowName (Year) - sXXeYY.[lang].ext e.g. "Breaking Bad (2008) - s01e01.en.srt"
 - If subtitle language is unknown/unlabeled, use ".en" by default.
-- Supported formats: .srt, .smi, .ssa, .ass, .vtt (full Plex support). VOBSUB/PGS may work but aren't ideal.
-- Subtitles can also live in a "Subs" or "Subtitles" subfolder in the same directory as the video.
-  Example: /Movies/Avatar (2009)/Subs/Avatar (2009).en.srt
 
-## Process:
-1. First, use list_directory to see what's in the torrent's download path.
-2. Determine if it's a movie or series (you'll be told which).
-3. Create the proper directory structure.
-4. Move the content to the proper location.
-5. Rename files to match Plex conventions (including subtitles).
-6. Call mark_complete when done, providing the final destination path.
+## REQUIRED PROCESS - DO EVERY STEP:
+1. Call list_directory on the source path to see all files.
+2. Create the destination directory (e.g. /mnt/storage/Movies/Title (Year)/).
+3. For EACH video file found: call move_path to move it to the destination with the correct Plex filename.
+4. For EACH subtitle file found: call move_path to move it with the correct Plex subtitle filename.
+5. Delete any junk files (.txt, .nfo, .jpg, .png, sample files). If source was a folder and is now empty, delete it.
+6. Call mark_complete with the destination path ONLY AFTER all files have been moved.
 
 ## Examples:
-- "We Bought a Zoo (2011) 720p BrRip x264 - 800MB - YIFY.mp4" → "We Bought a Zoo (2011).mp4"
-- "We.Bought.A.Zoo.2011.720p.BrRip.x264.YIFY.srt" → "We Bought a Zoo (2011).en.srt"
-- "Breaking.Bad.S01E01.720p.BluRay.x264-DEMAND.mkv" → "Breaking Bad (2008) - s01e01 - Pilot.mkv"
-- A folder "Game.of.Thrones.S01.Complete.720p" → Move to /mnt/storage/Series/Game of Thrones (2011)/Season 01/ and rename each episode.
-- Movie folder with subs: Move to /mnt/storage/Movies/Avatar (2009)/ keeping video + subs, rename both.
+- Source: /mnt/storage/torrents/We.Bought.A.Zoo.2011.720p.BrRip.x264.YIFY/We.Bought.A.Zoo.2011.720p.mp4
+  -> move_path to /mnt/storage/Movies/We Bought a Zoo (2011)/We Bought a Zoo (2011).mp4
+- Source subtitle: We.Bought.A.Zoo.2011.720p.BrRip.x264.YIFY.srt
+  -> move_path to /mnt/storage/Movies/We Bought a Zoo (2011)/We Bought a Zoo (2011).en.srt
+- Series folder with 10 episodes: create /mnt/storage/Series/Breaking Bad (2008)/Season 01/, then move EACH episode file with move_path and rename it.
 
-IMPORTANT: You will be given the correct title and year from our database. Use those exact values, not what's in the filename. Always call mark_complete at the end with the final path.`;
+IMPORTANT: You will be given the correct title and year from our database. Use those exact values, not what is in the filename. NEVER call mark_complete until you have actually moved the video file(s) to the destination.`;
 
 /**
  * POST /api/library/organize
@@ -120,7 +112,7 @@ export async function POST(req: NextRequest) {
       const result = await generateText({
         model: openai("gpt-4o-mini"),
         system: SYSTEM_PROMPT,
-        prompt: `Organize this ${mediaType} download:
+        prompt: `Organise this ${mediaType} download:
 
 **Title:** ${target.title}
 **Year:** ${target.year || "Unknown"}
@@ -132,7 +124,11 @@ export async function POST(req: NextRequest) {
 
 The destination root for movies is ${MOVIES_DIR} and for series is ${SERIES_DIR}.
 
-Please list the source directory first, then create the correct structure, move the files, rename them properly, and call mark_complete when done.`,
+Step 1: Call list_directory on the source path first to see exactly what files exist.
+Step 2: Create the destination folder.
+Step 3: Move EACH video and subtitle file individually to the destination with the correct Plex name.
+Step 4: Clean up junk files.
+Step 5: Call mark_complete with the final destination path.`,
         tools: {
           list_directory: {
             description: "List files and folders in a directory within /mnt/storage",
@@ -143,7 +139,7 @@ Please list the source directory first, then create the correct structure, move 
               const safePath = sanitizePath(dirPath);
               try {
                 const { stdout } = await execAsync(
-                  `find ${shellEscape(safePath)} -maxdepth 2 -type f -o -type d 2>/dev/null | head -100`
+                  `find ${shellEscape(safePath)} -maxdepth 3 -type f -o -type d 2>/dev/null | head -200`
                 );
                 return stdout || "(empty directory)";
               } catch {
@@ -163,17 +159,17 @@ Please list the source directory first, then create the correct structure, move 
             },
           },
           move_path: {
-            description: "Move a file or directory from source to destination within /mnt/storage",
+            description: "Move a file or directory from source to destination within /mnt/storage. Use this to move video files and subtitles to their Plex destination.",
             inputSchema: zodSchema(z.object({
               source: z.string().describe("Absolute source path"),
-              destination: z.string().describe("Absolute destination path"),
+              destination: z.string().describe("Absolute destination path including the new filename"),
             })),
             execute: async ({ source, destination }: { source: string; destination: string }) => {
               const safeSrc = sanitizePath(source);
               const safeDst = sanitizePath(destination);
               try {
                 await execAsync(`mv ${shellEscape(safeSrc)} ${shellEscape(safeDst)}`);
-                return `Moved: ${safeSrc} → ${safeDst}`;
+                return `Moved: ${safeSrc} -> ${safeDst}`;
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 return `Error moving: ${msg}`;
@@ -192,7 +188,7 @@ Please list the source directory first, then create the correct structure, move 
               const safeDst = sanitizePath(`${parentDir}/${newName}`);
               try {
                 await execAsync(`mv ${shellEscape(safeSrc)} ${shellEscape(safeDst)}`);
-                return `Renamed: ${safeSrc} → ${safeDst}`;
+                return `Renamed: ${safeSrc} -> ${safeDst}`;
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 return `Error renaming: ${msg}`;
@@ -200,14 +196,14 @@ Please list the source directory first, then create the correct structure, move 
             },
           },
           delete_file: {
-            description: "Delete a file (not directory) within /mnt/storage. Use to clean up non-English subs, .nfo, .txt, sample files",
+            description: "Delete a file or empty directory within /mnt/storage. Use to clean up non-English subs, .nfo, .txt, sample files, and empty source folders.",
             inputSchema: zodSchema(z.object({
-              path: z.string().describe("Absolute path of file to delete"),
+              path: z.string().describe("Absolute path of file or empty directory to delete"),
             })),
             execute: async ({ path: filePath }: { path: string }) => {
               const safePath = sanitizePath(filePath);
               try {
-                await execAsync(`rm -f ${shellEscape(safePath)}`);
+                await execAsync(`rm -rf ${shellEscape(safePath)}`);
                 return `Deleted: ${safePath}`;
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
@@ -216,10 +212,10 @@ Please list the source directory first, then create the correct structure, move 
             },
           },
           mark_complete: {
-            description: "Mark the organization as complete. Call this when all files are moved and renamed properly.",
+            description: "Mark the organisation as complete. ONLY call this AFTER all video and subtitle files have been moved to the destination.",
             inputSchema: zodSchema(z.object({
               destinationPath: z.string().describe("The final destination root path (e.g. /mnt/storage/Movies/MovieName (Year))"),
-              summary: z.string().describe("Brief summary of what was done"),
+              summary: z.string().describe("Brief summary of what was done, listing files moved"),
             })),
             execute: async ({ destinationPath, summary }: { destinationPath: string; summary: string }) => {
               finalDestination = destinationPath;
@@ -227,7 +223,7 @@ Please list the source directory first, then create the correct structure, move 
             },
           },
         },
-        stopWhen: stepCountIs(15),
+        stopWhen: stepCountIs(20),
       });
 
       // Update DB with success
@@ -260,14 +256,14 @@ Please list the source directory first, then create the correct structure, move 
 
       console.error("[Organize] AI error:", aiError);
       return NextResponse.json(
-        { error: `Organization failed: ${errorMsg}` },
+        { error: `Organisation failed: ${errorMsg}` },
         { status: 500 }
       );
     }
   } catch (err) {
     console.error("[Organize] error:", err);
     return NextResponse.json(
-      { error: "Failed to organize download" },
+      { error: "Failed to organise download" },
       { status: 500 }
     );
   }
