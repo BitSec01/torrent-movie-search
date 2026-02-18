@@ -3,8 +3,8 @@
 # Builds locally (standalone mode) and rsyncs to the Pi.
 # Usage: ./scripts/deploy.sh
 #
-# Requires: sshpass (apt install sshpass)
-# Set PI_PASS env var or it will prompt for password.
+# SSH key auth is assumed (run: ssh-copy-id bitsec@192.168.1.26 once).
+# Alternatively set PI_PASS env var and install sshpass.
 
 set -e
 
@@ -39,11 +39,17 @@ remote "mkdir -p $PI_DIR/logs $PI_DIR/.next/static $PI_DIR/public 2>/dev/null ||
 # Back up .env before sync
 remote "cp $PI_DIR/.env /tmp/.env.torrent-backup 2>/dev/null || true"
 
-# Sync standalone server (excludes native modules that are compiled on the Pi)
+# Sync standalone server.
+# Excludes:
+#   - better-sqlite3/bindings/file-uri-to-path: native modules that must be
+#     compiled on the Pi (armv7l), not copied from an x86 dev machine.
+#   - sqlite.db: the live database on the Pi must NEVER be overwritten by a
+#     local dev copy. The Pi database is the source of truth.
 rsync -az -e "$RSYNC_SSH" \
   --exclude='node_modules/better-sqlite3' \
   --exclude='node_modules/bindings' \
   --exclude='node_modules/file-uri-to-path' \
+  --exclude='sqlite.db' \
   .next/standalone/ \
   "$PI_USER@$PI_HOST:$PI_DIR/"
 

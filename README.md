@@ -1,6 +1,6 @@
-# 🎬 Torrent Movie Search
+# Torrent Movie Search
 
-A self-hosted web application for searching movies and TV series, exploring detailed metadata, and managing torrent downloads — all from a beautiful, modern UI. Powered by an **AI Movie Librarian** chatbot that can recommend titles, search torrents, and kick off downloads for you.
+A self-hosted web app for searching movies and TV series, managing torrent downloads, and organising your Plex media library — all from a modern dark UI. Powered by an **AI Movie Librarian** chatbot that can recommend titles, search torrents, and kick off downloads for you.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
@@ -12,53 +12,12 @@ A self-hosted web application for searching movies and TV series, exploring deta
 
 ## Features
 
-### 🔍 Multi-Source Movie Search
-Search across **IMDb** and **OMDB** simultaneously. Results are merged and deduplicated, showing posters, year, type (movie/series/episode), cast info, and available torrent links — all in one unified view.
-
-### 🤖 AI Movie Librarian
-A floating chat assistant powered by **OpenAI GPT** that can:
-- Recommend movies based on your taste ("movies like Inception", "best 90s sci-fi")
-- Search for specific titles and display them as visual cards
-- Search torrent sites for available downloads
-- Start downloads directly to your qBittorrent client
-- Discuss options before downloading — it won't bulk-download without asking
-
-### 🎥 Rich Movie Details
-Click any movie card to open a detailed modal with:
-- High-res poster, plot summary, genres, ratings (IMDb, Rotten Tomatoes, Metacritic)
-- Director, writer, cast, language, country, awards, box office
-- Direct link to IMDb page
-- Available torrent links with seed/peer counts, file sizes, and one-click download
-
-### 📥 qBittorrent Integration
-Seamlessly connected to your **qBittorrent** instance:
-- Add torrents via magnet links directly from the UI
-- Real-time download status with progress %, speed, and ETA
-- Visual indicators showing if a torrent is already downloaded or in progress
-- Smart save paths — movies go to `/mnt/storage/Movies`, series to `/mnt/storage/torrents`
-
-### 🗂️ Multiple View Modes
-Switch between **Grid**, **List**, and **By Year** views to browse results your way.
-
-### 🔐 Authentication
-Built-in auth system using **Better Auth** with SQLite-backed sessions.
-
----
-
-## Screenshots
-
-> _Screenshots coming soon — the UI features a dark zinc/indigo theme with movie poster grids, a floating AI chat panel, and detailed movie modals._
-
-<!-- Uncomment and add screenshot paths when available:
-### Home / Search
-![Search Page](docs/screenshots/search-page.png)
-
-### Movie Detail Modal
-![Movie Detail](docs/screenshots/movie-detail.png)
-
-### AI Chat Assistant
-![AI Chat](docs/screenshots/ai-chat.png)
--->
+- **Multi-source search** — IMDb + OMDB merged results with posters, ratings, and torrent links
+- **AI Movie Librarian** — ChatGPT-powered assistant that recommends titles, searches torrents, and starts downloads
+- **qBittorrent integration** — add magnets, track progress, real-time status
+- **Library tab** — tracks all downloads with status (downloading → completed → organised), auto-enriches missing poster/IMDb data via OMDB on each status check
+- **Organise tab** — 2×2 grid view of your storage; per-folder AI organiser copies torrent files into Plex-compatible structure (Movies/Series), merging without overwriting existing files
+- **Authentication** — session-based login via Better Auth + SQLite
 
 ---
 
@@ -66,104 +25,174 @@ Built-in auth system using **Better Auth** with SQLite-backed sessions.
 
 | Layer | Technology |
 |-------|-----------|
-| **Framework** | Next.js 16 (App Router) |
-| **Frontend** | React 19, Tailwind CSS 4 |
-| **AI** | Vercel AI SDK + OpenAI |
-| **Database** | SQLite via better-sqlite3 + Drizzle ORM |
-| **Auth** | Better Auth |
-| **Torrent Search** | torrent-search-api + custom TPB scraper |
-| **Download Client** | qBittorrent Web API |
-| **Forms** | TanStack Form + Zod validation |
-| **Data Fetching** | TanStack Query |
-| **Deployment** | PM2 on Raspberry Pi |
+| Framework | Next.js 16 (App Router, standalone output) |
+| Frontend | React 19, Tailwind CSS 4 |
+| AI | Vercel AI SDK + OpenAI |
+| Database | SQLite via better-sqlite3 + Drizzle ORM |
+| Auth | Better Auth |
+| Torrent search | torrent-search-api + custom TPB scraper |
+| Download client | qBittorrent Web API |
+| Deployment | PM2 on Raspberry Pi (armv7l) |
 
 ---
 
-## Getting Started
+## Local Development
 
 ### Prerequisites
 
-- **Node.js** 18+ (LTS recommended)
-- **npm** 9+
-- A running **qBittorrent** instance with Web UI enabled
-- An **OMDB API key** ([get one free](https://www.omdbapi.com/apikey.aspx))
-- An **OpenAI API key** (for the AI chat feature)
+- Node.js 18+
+- A running qBittorrent instance with Web UI enabled
+- OMDB API key — [get one free](https://www.omdbapi.com/apikey.aspx)
+- OpenAI API key
 
-### Installation
+### Setup
 
 ```bash
-# Clone the repository
 git clone git@github.com:BitSec01/torrent-movie-search.git
 cd torrent-movie-search
-
-# Install dependencies
 npm install
-
-# Copy environment template and fill in your values
 cp .env.example .env
+# Edit .env with your values (see section below)
+npm run db:push   # creates sqlite.db with the schema
+npm run dev       # http://localhost:3000
 ```
 
-### Environment Variables
-
-Edit `.env` with your configuration:
+### Environment variables
 
 ```env
 BETTER_AUTH_SECRET=your-secret-key-here
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
 OMDB_API_KEY=your-omdb-api-key
 OPENAI_API_KEY=your-openai-api-key
+
 QBITTORRENT_HOST=http://192.168.1.26:8080
 QBITTORRENT_USERNAME=admin
 QBITTORRENT_PASSWORD=your-qbt-password
 ```
 
-### Database Setup
-
-```bash
-# Push the schema to SQLite
-npm run db:push
-```
-
-### Development
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Production Build
-
-```bash
-npm run build
-npm start
-```
-
 ---
 
-## Deployment (Raspberry Pi with PM2)
+## Deploying to Raspberry Pi
 
-The project includes a PM2 ecosystem config and an auto-update script for self-hosted deployment.
+The app runs on a Raspberry Pi (armv7l) via PM2. The deploy process builds the Next.js standalone bundle on your dev machine, then rsyncs it to the Pi.
+
+> **Important:** The Pi's `sqlite.db` is **never touched** by the deploy script. It is the source of truth for all download tracking data and must be preserved across deployments.
+
+### One-time Pi setup
 
 ```bash
+# On the Pi — install Node.js 18
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
 # Install PM2 globally
 sudo npm install -g pm2
 
-# Start the application
-pm2 start ecosystem.config.js
+# Create the app directory
+mkdir -p /home/bitsec/torrent-movie-search/logs
 
-# Save PM2 process list for auto-restart on reboot
-pm2 save
-pm2 startup
+# Copy your .env to the Pi (only needed once, or when env vars change)
+scp .env bitsec@192.168.1.26:/home/bitsec/torrent-movie-search/.env
 ```
 
-### Auto-Update (CI/CD)
-
-A cron-based auto-update script checks for new commits on `main` every 2 minutes. If changes are detected, it pulls, rebuilds, and restarts the app automatically.
+On the Pi, install the native SQLite module (must be compiled on-device for armv7l):
 
 ```bash
-# The cron job is set up during deployment — see scripts/update.sh
+ssh bitsec@192.168.1.26
+cd /home/bitsec/torrent-movie-search
+npm install better-sqlite3 bindings file-uri-to-path
 ```
+
+Set up PM2 to restart on reboot:
+
+```bash
+pm2 startup    # follow the printed command to enable the systemd service
+pm2 save
+```
+
+Set up SSH key auth from your dev machine so the deploy script works without a password:
+
+```bash
+# On your dev machine (one time)
+ssh-copy-id bitsec@192.168.1.26
+```
+
+### Deploying
+
+From your dev machine, in the project root:
+
+```bash
+./scripts/deploy.sh
+```
+
+This script:
+1. Builds the Next.js standalone bundle locally (`npx next build --webpack`)
+2. Rsyncs the build to the Pi — **`sqlite.db` is excluded** so the Pi database is never overwritten
+3. Rsyncs static assets and the PM2 ecosystem config
+4. Backs up the Pi's `.env` before sync and restores it after (so it is never replaced by the dev copy)
+5. Restarts the app via `pm2 restart`
+
+The app will be available at **http://192.168.1.26:3000**.
+
+### What the rsync excludes
+
+| Excluded | Reason |
+|----------|--------|
+| `node_modules/better-sqlite3` | Native module — must be compiled on the Pi (armv7l), not copied from x86 |
+| `node_modules/bindings` | Dependency of better-sqlite3, same reason |
+| `node_modules/file-uri-to-path` | Dependency of better-sqlite3, same reason |
+| `sqlite.db` | **Live database** — Pi data must never be overwritten by a local dev copy |
+
+### Checking the app after deploy
+
+```bash
+ssh bitsec@192.168.1.26 "pm2 list"
+ssh bitsec@192.168.1.26 "pm2 logs torrent-movie-search --lines 30 --nostream"
+```
+
+### Troubleshooting
+
+**App crashes — `Error: Cannot find module 'better-sqlite3'`**
+
+The native module needs to be compiled on the Pi. SSH in and run:
+
+```bash
+cd /home/bitsec/torrent-movie-search
+npm install better-sqlite3 bindings file-uri-to-path
+pm2 restart ecosystem.config.js
+```
+
+**App crashes — missing env var (e.g. `BETTER_AUTH_SECRET`)**
+
+```bash
+scp .env bitsec@192.168.1.26:/home/bitsec/torrent-movie-search/.env
+ssh bitsec@192.168.1.26 "pm2 restart ecosystem.config.js"
+```
+
+**Library shows no downloads after a fresh deploy**
+
+The database (`sqlite.db`) lives on the Pi and is preserved across deploys. If it is missing (e.g. fresh install), the app will create a new empty one on first start. Run `npm run db:push` on the Pi, or simply start the app — Drizzle will auto-migrate.
+
+---
+
+## Storage Structure
+
+The app expects media to live at `/mnt/storage` on the Pi:
+
+```
+/mnt/storage/
+├── Movies/
+│   └── Movie Title (Year)/
+│       └── Movie Title (Year).mkv
+├── Series/
+│   └── Show Name (Year)/
+│       └── Season 01/
+│           └── Show Name (Year) - s01e01 - Episode Title.mkv
+└── torrents/          ← qBittorrent save path (staging area)
+```
+
+The **Organise tab** AI reads from `torrents/` and copies files into `Movies/` or `Series/` with correct Plex naming. The original torrent folder is kept intact; existing files at the destination are skipped (safe to run multiple times or use as a merge tool).
 
 ---
 
@@ -173,29 +202,29 @@ A cron-based auto-update script checks for new commits on `main` every 2 minutes
 src/
 ├── app/
 │   ├── api/
-│   │   ├── auth/[...all]/   # Better Auth endpoints
-│   │   ├── chat/             # AI chat streaming endpoint
-│   │   ├── movies/           # Movie search & detail APIs
-│   │   └── torrents/         # Torrent download & status APIs
-│   ├── layout.tsx            # Root layout with providers
-│   └── page.tsx              # Home page
+│   │   ├── chat/                    # AI chat streaming
+│   │   ├── library/
+│   │   │   ├── check/               # Poll qBittorrent + enrich OMDB metadata
+│   │   │   ├── organize/            # AI organiser for library downloads
+│   │   │   ├── organize-folder/     # AI organiser for a single torrent folder
+│   │   │   ├── organize-storage/    # Batch organiser for entire torrents dir
+│   │   │   └── storage-tree/        # Directory tree API for Organise tab
+│   │   ├── movies/                  # Search + detail
+│   │   └── torrents/                # qBittorrent download + status
+│   └── page.tsx
 ├── components/
-│   ├── ai-chat.tsx           # Floating AI chat panel
-│   ├── movie-card.tsx        # Movie poster card
-│   ├── movie-detail-modal.tsx# Full detail modal with torrent links
-│   ├── movie-grid.tsx        # Grid/List/Year view modes
-│   ├── search-form.tsx       # Search form with filters
-│   └── search-page.tsx       # Main search page orchestrator
-├── db/                       # Drizzle ORM schema & connection
-├── hooks/                    # React Query hooks
-├── lib/
-│   ├── api/                  # Backend API clients (IMDb, OMDB, torrents, qBittorrent)
-│   └── auth.ts               # Auth configuration
-└── providers/                # React context providers
+│   ├── ai-chat.tsx
+│   ├── library-page.tsx
+│   ├── organize-page.tsx
+│   └── search-page.tsx
+├── db/                              # Drizzle schema + connection
+├── lib/api/                         # IMDb, OMDB, torrent, qBittorrent clients
+└── scripts/
+    └── deploy.sh                    # Build + rsync to Pi
 ```
 
 ---
 
 ## License
 
-This project is for personal/educational use only. Respect copyright laws in your jurisdiction.
+Personal/educational use only. Respect copyright laws in your jurisdiction.
