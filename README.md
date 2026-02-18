@@ -77,26 +77,39 @@ QBITTORRENT_PASSWORD=your-qbt-password
 
 The app runs on a Raspberry Pi (armv7l) via PM2. The deploy process builds the Next.js standalone bundle on your dev machine, then rsyncs it to the Pi.
 
-> **Important:** The Pi's `sqlite.db` is **never touched** by the deploy script. It is the source of truth for all download tracking data and must be preserved across deployments.
+> **Important:** The Pi's `sqlite.db` is **never touched** by the deploy script. It is the source of truth for all download tracking data and is preserved across every deployment.
 
-### One-time Pi setup
+### One-time setup (first deploy only)
+
+**Step 1 — SSH key auth** (from your dev machine, so the deploy script works without a password):
 
 ```bash
-# On the Pi — install Node.js 18
+ssh-copy-id bitsec@192.168.1.26
+```
+
+**Step 2 — Pi prerequisites** (SSH into the Pi and run):
+
+```bash
+# Install Node.js 18
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Install PM2 globally
 sudo npm install -g pm2
 
-# Create the app directory
+# Create app and logs directories
 mkdir -p /home/bitsec/torrent-movie-search/logs
-
-# Copy your .env to the Pi (only needed once, or when env vars change)
-scp .env bitsec@192.168.1.26:/home/bitsec/torrent-movie-search/.env
 ```
 
-On the Pi, install the native SQLite module (must be compiled on-device for armv7l):
+**Step 3 — Run the first deploy** (from your dev machine):
+
+```bash
+./scripts/deploy.sh
+```
+
+This rsyncs the build to the Pi. The app won't start yet because the native SQLite module isn't compiled.
+
+**Step 4 — Compile native modules on the Pi:**
 
 ```bash
 ssh bitsec@192.168.1.26
@@ -104,23 +117,32 @@ cd /home/bitsec/torrent-movie-search
 npm install better-sqlite3 bindings file-uri-to-path
 ```
 
-Set up PM2 to restart on reboot:
+`better-sqlite3` is a native C++ module. It must be compiled on the Pi (armv7l) — the x86 version from your dev machine will not work.
+
+**Step 5 — Copy your `.env` to the Pi:**
 
 ```bash
-pm2 startup    # follow the printed command to enable the systemd service
+# From your dev machine
+scp .env bitsec@192.168.1.26:/home/bitsec/torrent-movie-search/.env
+```
+
+**Step 6 — Start the app and set it to restart on reboot:**
+
+```bash
+# On the Pi
+cd /home/bitsec/torrent-movie-search
+pm2 start ecosystem.config.js
 pm2 save
+pm2 startup   # prints a command — copy and run it to enable auto-start
 ```
 
-Set up SSH key auth from your dev machine so the deploy script works without a password:
+The app will be available at **http://192.168.1.26:3000**.
 
-```bash
-# On your dev machine (one time)
-ssh-copy-id bitsec@192.168.1.26
-```
+---
 
-### Deploying
+### Subsequent deploys
 
-From your dev machine, in the project root:
+Every deploy after the first is just one command from your dev machine:
 
 ```bash
 ./scripts/deploy.sh
@@ -132,8 +154,6 @@ This script:
 3. Rsyncs static assets and the PM2 ecosystem config
 4. Backs up the Pi's `.env` before sync and restores it after (so it is never replaced by the dev copy)
 5. Restarts the app via `pm2 restart`
-
-The app will be available at **http://192.168.1.26:3000**.
 
 ### What the rsync excludes
 
