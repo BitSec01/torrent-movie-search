@@ -27,19 +27,21 @@ export async function searchTorrents(
   try {
     const results = await TorrentSearchApi.search(query, category, limit);
 
-    const torrents: TorrentLink[] = [];
-    for (const r of results) {
-      // Try to get magnet link for each result
+    const torrents = await Promise.all(results.map(async (r) => {
+      // Try to get magnet link — race against a 3s timeout so one slow provider can't stall the rest
       let magnet: string | undefined;
       try {
-        magnet = await TorrentSearchApi.getMagnet(r);
+        magnet = await Promise.race([
+          TorrentSearchApi.getMagnet(r),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+        ]);
       } catch {
-        // Some providers may fail to get magnet
+        // Some providers may fail or timeout
       }
 
       // The runtime torrent objects have seeds/peers/link but the type defs are incomplete
       const raw = r as unknown as Record<string, unknown>;
-      torrents.push({
+      return {
         title: r.title ?? "",
         provider: r.provider ?? "",
         seeds: Number(raw.seeds) || 0,
@@ -47,8 +49,8 @@ export async function searchTorrents(
         size: r.size ?? "",
         magnet: magnet || undefined,
         link: (raw.link as string) || r.desc || undefined,
-      });
-    }
+      } satisfies TorrentLink;
+    }));
 
     return torrents;
   } catch (err) {
