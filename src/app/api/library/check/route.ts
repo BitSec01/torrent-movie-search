@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { download } from "@/db/schema";
-import { eq, or, isNull } from "drizzle-orm";
+import { eq, or, isNull, inArray } from "drizzle-orm";
 import { getTorrentsInfo } from "@/lib/api/qbittorrent";
 import { searchOmdb } from "@/lib/api/omdb";
 
@@ -9,11 +9,35 @@ import { searchOmdb } from "@/lib/api/omdb";
  * POST /api/library/check
  * Polls qBittorrent for all torrents, updates the DB status for tracked downloads.
  * Marks downloads as "completed" when qBittorrent reports them done.
+ * Removes tracked downloads whose torrent has been deleted from qBittorrent
+ * (except those already "organized" — those have a destination path independent
+ * of the torrent and should be kept until the user manually removes them).
  * Also enriches downloads that are missing poster/imdbId via OMDB.
  */
 export async function POST() {
   try {
-    // Get all downloads that are still in "downloading" state
+    // Pull every torrent qBittorrent knows about so we can both update status
+    // and detect torrents that have been removed.
+    const allTorrents = await getTorrentsInfo();
+    const qbtHashes = new Set(allTorrents.map((t) => t.hash.toLowerCase()));
+
+    // Drop tracked downloads whose torrent no longer exists in qBittorrent.
+    // Skip "organized" rows — those have already been moved into the library
+    // and may legitimately have had their torrent removed.
+    const allTracked = db.select().from(download).all();
+    const orphanedIds = allTracked
+      .filter((d) => d.status !== "organized" && !qbtHashes.has(d.hash.toLowerCase()))
+      .map((d) => d.id);
+    let removed = 0;
+    if (orphanedIds.length > 0) {
+      const result = db
+        .delete(download)
+        .where(inArray(download.id, orphanedIds))
+        .run();
+      removed = result.changes ?? orphanedIds.length;
+    }
+
+    // Update status for downloads that are still in "downloading" state.
     const pendingDownloads = db
       .select()
       .from(download)
@@ -21,14 +45,10 @@ export async function POST() {
       .all();
 
     if (pendingDownloads.length > 0) {
-      // Query qBittorrent for these hashes
-      const hashes = pendingDownloads.map((d) => d.hash);
-      const torrentsInfo = await getTorrentsInfo(hashes);
-
       const now = new Date();
 
       for (const d of pendingDownloads) {
-        const info = torrentsInfo.find(
+        const info = allTorrents.find(
           (t) => t.hash.toLowerCase() === d.hash.toLowerCase()
         );
         if (!info) continue;
@@ -96,6 +116,7 @@ export async function POST() {
       updated: pendingDownloads.length,
       checked: pendingDownloads.length,
       enriched,
+      removed,
     });
   } catch (err) {
     console.error("[Library Check] error:", err);

@@ -28,6 +28,7 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [organizing, setOrganizing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
   const fetchLibrary = useCallback(async () => {
@@ -75,6 +76,23 @@ export function LibraryPage() {
       await fetchLibrary();
     } finally {
       setOrganizing(null);
+    }
+  };
+
+  const handleDelete = async (downloadId: string, title: string) => {
+    if (!confirm(`Stop tracking "${title}" in the library? This won't touch qBittorrent or any files on disk.`)) {
+      return;
+    }
+    setDeleting(downloadId);
+    try {
+      const res = await fetch(`/api/library/${downloadId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("[Delete]", data.error);
+      }
+      setDownloads((prev) => prev.filter((d) => d.id !== downloadId));
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -204,7 +222,9 @@ export function LibraryPage() {
                     key={d.id}
                     download={d}
                     organizing={organizing === d.id}
+                    deleting={deleting === d.id}
                     onOrganize={() => handleOrganize(d.id)}
+                    onDelete={() => handleDelete(d.id, d.title)}
                   />
                 ))}
               </Section>
@@ -218,7 +238,9 @@ export function LibraryPage() {
                     key={d.id}
                     download={d}
                     organizing={organizing === d.id}
+                    deleting={deleting === d.id}
                     onOrganize={() => handleOrganize(d.id)}
+                    onDelete={() => handleDelete(d.id, d.title)}
                   />
                 ))}
               </Section>
@@ -263,11 +285,15 @@ function StatusBadge({ status }: { status: string }) {
 function DownloadCard({
   download: d,
   organizing,
+  deleting,
   onOrganize,
+  onDelete,
 }: {
   download: Download;
   organizing: boolean;
+  deleting: boolean;
   onOrganize: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 transition hover:border-zinc-700">
@@ -371,6 +397,23 @@ function DownloadCard({
                 IMDb
               </a>
             )}
+            <button
+              onClick={onDelete}
+              disabled={deleting}
+              title="Stop tracking this in the library (won't touch qBittorrent or files)"
+              className="ml-auto flex items-center gap-1 rounded-md bg-red-600/10 px-2 py-1 text-[11px] font-medium text-red-400 transition hover:bg-red-600/20 disabled:opacity-50"
+            >
+              {deleting ? (
+                <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+              )}
+              Remove
+            </button>
           </div>
         </div>
       </div>
