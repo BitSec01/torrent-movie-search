@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
+import { OrganizePlanModal } from "@/components/organize-plan-modal";
 
 interface Download {
   id: string;
@@ -27,7 +28,7 @@ export function LibraryPage() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>("all");
-  const [organizing, setOrganizing] = useState<string | null>(null);
+  const [organizeItems, setOrganizeItems] = useState<Array<{ folderName: string; downloadId: string }> | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -61,22 +62,29 @@ export function LibraryPage() {
     }
   };
 
-  const handleOrganize = async (downloadId: string) => {
-    setOrganizing(downloadId);
-    try {
-      const res = await fetch("/api/library/organize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ downloadId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error("[Organize]", data.error);
-      }
-      await fetchLibrary();
-    } finally {
-      setOrganizing(null);
+  const getTorrentFolderName = (d: Download): string | null => {
+    if (d.torrentName) return d.torrentName;
+    if (d.originalPath) {
+      const match = d.originalPath.match(/\/torrents\/(.+)$/);
+      return match?.[1] ?? null;
     }
+    return null;
+  };
+
+  const handleOrganize = (d: Download) => {
+    const folderName = getTorrentFolderName(d);
+    if (!folderName) return;
+    setOrganizeItems([{ folderName, downloadId: d.id }]);
+  };
+
+  const handleOrganizeAll = () => {
+    const items = downloads
+      .filter((d) => d.status === "completed")
+      .flatMap((d) => {
+        const folderName = getTorrentFolderName(d);
+        return folderName ? [{ folderName, downloadId: d.id }] : [];
+      });
+    if (items.length > 0) setOrganizeItems(items);
   };
 
   const handleDelete = async (downloadId: string, title: string) => {
@@ -94,24 +102,6 @@ export function LibraryPage() {
     } finally {
       setDeleting(null);
     }
-  };
-
-  const handleOrganizeAll = async () => {
-    const completedDownloads = downloads.filter((d) => d.status === "completed");
-    for (const d of completedDownloads) {
-      setOrganizing(d.id);
-      try {
-        await fetch("/api/library/organize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ downloadId: d.id }),
-        });
-        await fetchLibrary();
-      } catch {
-        // continue with next
-      }
-    }
-    setOrganizing(null);
   };
 
   const filtered = filter === "all" ? downloads : downloads.filter((d) => d.status === filter);
@@ -155,8 +145,7 @@ export function LibraryPage() {
               {statusCounts.completed > 0 && (
                 <button
                   onClick={handleOrganizeAll}
-                  disabled={!!organizing}
-                  className="flex items-center gap-2 rounded-lg bg-emerald-600/20 px-4 py-2 text-sm font-medium text-emerald-400 transition hover:bg-emerald-600/30 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600/20 px-4 py-2 text-sm font-medium text-emerald-400 transition hover:bg-emerald-600/30"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
@@ -221,9 +210,8 @@ export function LibraryPage() {
                   <DownloadCard
                     key={d.id}
                     download={d}
-                    organizing={organizing === d.id}
                     deleting={deleting === d.id}
-                    onOrganize={() => handleOrganize(d.id)}
+                    onOrganize={() => handleOrganize(d)}
                     onDelete={() => handleDelete(d.id, d.title)}
                   />
                 ))}
@@ -237,9 +225,8 @@ export function LibraryPage() {
                   <DownloadCard
                     key={d.id}
                     download={d}
-                    organizing={organizing === d.id}
                     deleting={deleting === d.id}
-                    onOrganize={() => handleOrganize(d.id)}
+                    onOrganize={() => handleOrganize(d)}
                     onDelete={() => handleDelete(d.id, d.title)}
                   />
                 ))}
@@ -248,6 +235,17 @@ export function LibraryPage() {
           </div>
         )}
       </div>
+
+      {organizeItems && (
+        <OrganizePlanModal
+          items={organizeItems}
+          onClose={() => setOrganizeItems(null)}
+          onDone={() => {
+            setOrganizeItems(null);
+            fetchLibrary();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -284,13 +282,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function DownloadCard({
   download: d,
-  organizing,
   deleting,
   onOrganize,
   onDelete,
 }: {
   download: Download;
-  organizing: boolean;
   deleting: boolean;
   onOrganize: () => void;
   onDelete: () => void;
@@ -358,31 +354,18 @@ function DownloadCard({
             {d.status === "completed" && (
               <button
                 onClick={onOrganize}
-                disabled={organizing}
-                className="flex items-center gap-1 rounded-md bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-400 transition hover:bg-emerald-600/30 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-400 transition hover:bg-emerald-600/30"
               >
-                {organizing ? (
-                  <>
-                    <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                    </svg>
-                    Organizing...
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
-                    </svg>
-                    Organize
-                  </>
-                )}
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+                </svg>
+                Organize
               </button>
             )}
             {d.status === "failed" && (
               <button
                 onClick={onOrganize}
-                disabled={organizing}
-                className="flex items-center gap-1 rounded-md bg-amber-600/20 px-2.5 py-1 text-[11px] font-medium text-amber-400 transition hover:bg-amber-600/30 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md bg-amber-600/20 px-2.5 py-1 text-[11px] font-medium text-amber-400 transition hover:bg-amber-600/30"
               >
                 Retry
               </button>

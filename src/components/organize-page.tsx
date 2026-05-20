@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { OrganizePlanModal } from "@/components/organize-plan-modal";
 
 interface StorageItem {
   name: string;
@@ -10,24 +11,16 @@ interface StorageItem {
   children?: StorageItem[];
 }
 
-interface LogEntry {
-  time: string;
-  action: string;
-  detail: string;
-}
-
 type StorageTree = Record<string, StorageItem[]>;
 
 export function OrganizePage() {
   const [tree, setTree] = useState<StorageTree | null>(null);
   const [loading, setLoading] = useState(true);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [organizingFolder, setOrganizingFolder] = useState<string | null>(null);
+  const [organizeFolder, setOrganizeFolder] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["Movies", "Series", "torrents"])
   );
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const logEndRef = useRef<HTMLDivElement>(null);
 
   const fetchTree = useCallback(async () => {
     setLoading(true);
@@ -47,37 +40,6 @@ export function OrganizePage() {
   useEffect(() => {
     fetchTree();
   }, [fetchTree]);
-
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
-  const handleOrganiseFolder = async (folderName: string) => {
-    setOrganizingFolder(folderName);
-    setLogs([{ time: new Date().toISOString(), action: "START", detail: `Organising: ${folderName}` }]);
-    try {
-      const res = await fetch("/api/library/organize-folder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folderName }),
-      });
-      const data = await res.json();
-      if (data.logs) {
-        setLogs(data.logs);
-      }
-      if (data.error) {
-        setLogs((prev) => [...prev, { time: new Date().toISOString(), action: "ERROR", detail: data.error }]);
-      }
-      await fetchTree();
-    } catch (err) {
-      setLogs((prev) => [
-        ...prev,
-        { time: new Date().toISOString(), action: "ERROR", detail: String(err) },
-      ]);
-    } finally {
-      setOrganizingFolder(null);
-    }
-  };
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {
@@ -160,14 +122,22 @@ export function OrganizePage() {
               expandedDirs={expandedDirs}
               onToggleSection={() => toggleSection("torrents")}
               onToggleDir={toggleDir}
-              organizingFolder={organizingFolder}
-              onOrganise={handleOrganiseFolder}
+              onOrganise={(folderName) => setOrganizeFolder(folderName)}
             />
-
-            <LogSection logs={logs} logEndRef={logEndRef} />
           </div>
         )}
       </div>
+
+      {organizeFolder && (
+        <OrganizePlanModal
+          items={[{ folderName: organizeFolder }]}
+          onClose={() => setOrganizeFolder(null)}
+          onDone={() => {
+            setOrganizeFolder(null);
+            fetchTree();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -243,7 +213,6 @@ function TorrentsSection({
   expandedDirs,
   onToggleSection,
   onToggleDir,
-  organizingFolder,
   onOrganise,
 }: {
   items: StorageItem[];
@@ -251,7 +220,6 @@ function TorrentsSection({
   expandedDirs: Set<string>;
   onToggleSection: () => void;
   onToggleDir: (path: string) => void;
-  organizingFolder: string | null;
   onOrganise: (folderName: string) => void;
 }) {
   return (
@@ -282,8 +250,6 @@ function TorrentsSection({
                   item={item}
                   expandedDirs={expandedDirs}
                   onToggleDir={onToggleDir}
-                  isOrganising={organizingFolder === item.name}
-                  anyOrganising={organizingFolder !== null}
                   onOrganise={() => onOrganise(item.name)}
                 />
               ))}
@@ -307,15 +273,11 @@ function TorrentFolderRow({
   item,
   expandedDirs,
   onToggleDir,
-  isOrganising,
-  anyOrganising,
   onOrganise,
 }: {
   item: StorageItem;
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
-  isOrganising: boolean;
-  anyOrganising: boolean;
   onOrganise: () => void;
 }) {
   const isDir = item.type === "directory";
@@ -324,7 +286,7 @@ function TorrentFolderRow({
 
   return (
     <div>
-      <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 transition ${isOrganising ? "bg-purple-900/20" : "hover:bg-zinc-800/40"}`}>
+      <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 transition hover:bg-zinc-800/40">
         {/* Expand toggle for dirs */}
         {isDir ? (
           <button
@@ -362,29 +324,13 @@ function TorrentFolderRow({
             e.stopPropagation();
             onOrganise();
           }}
-          disabled={anyOrganising}
           title={`Organise "${item.name}" into Movies or Series`}
-          className={`shrink-0 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ${
-            isOrganising
-              ? "bg-purple-600/30 text-purple-300"
-              : "bg-purple-600/20 text-purple-400 hover:bg-purple-600/30"
-          }`}
+          className="shrink-0 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition bg-purple-600/20 text-purple-400 hover:bg-purple-600/30"
         >
-          {isOrganising ? (
-            <>
-              <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-              </svg>
-              Organising...
-            </>
-          ) : (
-            <>
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-              Organise
-            </>
-          )}
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          </svg>
+          Organise
         </button>
       </div>
 
@@ -412,69 +358,6 @@ function TorrentFolderRow({
         </div>
       )}
     </div>
-  );
-}
-
-function LogSection({
-  logs,
-  logEndRef,
-}: {
-  logs: LogEntry[];
-  logEndRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  return (
-    <div className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/60 overflow-hidden" style={{ minHeight: "320px", maxHeight: "420px" }}>
-      <div className="shrink-0 px-5 py-4 border-b border-zinc-800/60">
-        <h2 className="text-base font-bold text-zinc-300">Organisation Log</h2>
-        {logs.length > 0 && (
-          <p className="text-xs text-zinc-600 mt-0.5">{logs.length} actions</p>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {logs.length === 0 ? (
-          <div className="flex items-center justify-center h-full py-10 text-center px-4">
-            <p className="text-sm text-zinc-600">
-              Click <span className="text-purple-400 font-medium">Organise</span> on a torrent folder to start.
-            </p>
-          </div>
-        ) : (
-          <div className="p-3 space-y-1">
-            {logs.map((log, i) => (
-              <div key={i} className="flex gap-2 items-start rounded-lg px-2 py-1.5 hover:bg-zinc-800/30">
-                <LogBadge action={log.action} />
-                <span className="text-sm text-zinc-400 break-all leading-relaxed">{log.detail}</span>
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LogBadge({ action }: { action: string }) {
-  const styles: Record<string, string> = {
-    START: "bg-blue-600/20 text-blue-400",
-    SCAN: "bg-indigo-600/20 text-indigo-400",
-    LIST: "bg-zinc-700/50 text-zinc-400",
-    MKDIR: "bg-amber-600/20 text-amber-400",
-    MOVE: "bg-emerald-600/20 text-emerald-400",
-    COPY: "bg-cyan-600/20 text-cyan-400",
-    SKIP: "bg-zinc-600/20 text-zinc-500",
-    RENAME: "bg-cyan-600/20 text-cyan-400",
-    DELETE: "bg-red-600/20 text-red-400",
-    COMPLETE: "bg-emerald-600/30 text-emerald-300",
-    DONE: "bg-emerald-600/30 text-emerald-300",
-    ERROR: "bg-red-600/30 text-red-300",
-    INFO: "bg-zinc-700/50 text-zinc-400",
-  };
-
-  return (
-    <span className={`shrink-0 inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${styles[action] ?? "bg-zinc-700 text-zinc-400"}`}>
-      {action}
-    </span>
   );
 }
 
