@@ -1,81 +1,73 @@
 #!/bin/bash
-# Deploy torrent-movie-search to Raspberry Pi
-# Builds locally (standalone mode) and rsyncs to the Pi.
+# Deploy torrent-movie-search to server
+# Builds locally (standalone mode) and rsyncs to the server.
 # Usage: ./scripts/deploy.sh
 #
-# SSH key auth is assumed (run: ssh-copy-id bitsec@192.168.1.26 once).
-# Alternatively set PI_PASS env var and install sshpass.
+# SSH key auth is assumed (run: ssh-copy-id bit1@192.168.1.26 once).
 
 set -e
 
-PI_USER="bitsec"
-PI_HOST="192.168.1.26"
-PI_DIR="/home/bitsec/torrent-movie-search"
+SERVER_USER="bit1"
+SERVER_HOST="192.168.1.26"
+SERVER_DIR="/home/bit1/torrent-movie-search"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# SSH/rsync helper using sshpass if available
 SSH_OPTS="-o StrictHostKeyChecking=no"
-if [ -n "$PI_PASS" ] && command -v sshpass &>/dev/null; then
-  SSH_CMD="sshpass -p '$PI_PASS' ssh $SSH_OPTS"
-  RSYNC_SSH="sshpass -p '$PI_PASS' ssh $SSH_OPTS"
-else
-  SSH_CMD="ssh $SSH_OPTS"
-  RSYNC_SSH="ssh $SSH_OPTS"
-fi
+SSH_CMD="ssh $SSH_OPTS"
+RSYNC_SSH="ssh $SSH_OPTS"
 
 remote() {
-  eval "$SSH_CMD $PI_USER@$PI_HOST \"$1\""
+  eval "$SSH_CMD $SERVER_USER@$SERVER_HOST \"$1\""
 }
 
 echo "==> Building Next.js (standalone + webpack)..."
 cd "$PROJECT_DIR"
 npx next build --webpack
 
-echo "==> Syncing standalone build to $PI_USER@$PI_HOST..."
+echo "==> Syncing standalone build to $SERVER_USER@$SERVER_HOST..."
 
 # Ensure target directories exist
-remote "mkdir -p $PI_DIR/logs $PI_DIR/.next/static $PI_DIR/public 2>/dev/null || true"
+remote "mkdir -p $SERVER_DIR/logs $SERVER_DIR/.next/static $SERVER_DIR/public 2>/dev/null || true"
 
 # Back up .env before sync
-remote "cp $PI_DIR/.env /tmp/.env.torrent-backup 2>/dev/null || true"
+remote "cp $SERVER_DIR/.env /tmp/.env.torrent-backup 2>/dev/null || true"
 
 # Sync standalone server.
 # Excludes:
-#   - better-sqlite3/bindings/file-uri-to-path: native modules that must be
-#     compiled on the Pi (armv7l), not copied from an x86 dev machine.
-#   - sqlite.db: the live database on the Pi must NEVER be overwritten by a
-#     local dev copy. The Pi database is the source of truth.
+#   - better-sqlite3/bindings/file-uri-to-path: native modules compiled on the
+#     server, not copied from the dev machine.
+#   - sqlite.db: the live database on the server must NEVER be overwritten.
 rsync -az -e "$RSYNC_SSH" \
   --exclude='node_modules/better-sqlite3' \
   --exclude='node_modules/bindings' \
   --exclude='node_modules/file-uri-to-path' \
   --exclude='sqlite.db' \
   .next/standalone/ \
-  "$PI_USER@$PI_HOST:$PI_DIR/"
+  "$SERVER_USER@$SERVER_HOST:$SERVER_DIR/"
 
 # Sync static assets (standalone doesn't include these)
 rsync -az -e "$RSYNC_SSH" \
   .next/static/ \
-  "$PI_USER@$PI_HOST:$PI_DIR/.next/static/"
+  "$SERVER_USER@$SERVER_HOST:$SERVER_DIR/.next/static/"
 
 # Sync public folder if it exists
 if [ -d "public" ]; then
   rsync -az -e "$RSYNC_SSH" \
     public/ \
-    "$PI_USER@$PI_HOST:$PI_DIR/public/"
+    "$SERVER_USER@$SERVER_HOST:$SERVER_DIR/public/"
 fi
 
 # Sync ecosystem config + scripts
 rsync -az -e "$RSYNC_SSH" \
   ecosystem.config.js \
   scripts/ \
-  "$PI_USER@$PI_HOST:$PI_DIR/"
+  "$SERVER_USER@$SERVER_HOST:$SERVER_DIR/"
 
 # Restore .env (rsync may have overwritten it with the dev version)
-remote "cp /tmp/.env.torrent-backup $PI_DIR/.env 2>/dev/null || true"
-remote "test -f $PI_DIR/.env || echo 'WARNING: No .env file on Pi! Copy .env.example and configure it.'"
+remote "cp /tmp/.env.torrent-backup $SERVER_DIR/.env 2>/dev/null || true"
+remote "test -f $SERVER_DIR/.env || echo 'WARNING: No .env file on server! Copy .env.example and configure it.'"
 
 echo "==> Restarting PM2..."
-remote "cd $PI_DIR && pm2 restart ecosystem.config.js 2>/dev/null || pm2 start ecosystem.config.js"
+remote "cd $SERVER_DIR && pm2 restart ecosystem.config.js 2>/dev/null || pm2 start ecosystem.config.js"
 
-echo "==> Deploy complete! App running at http://$PI_HOST"
+echo "==> Deploy complete! App running at http://$SERVER_HOST:3000"
