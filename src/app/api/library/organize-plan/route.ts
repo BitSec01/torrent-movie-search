@@ -35,6 +35,69 @@ function cleanTorrentName(raw: string): string {
   return name.trim() || raw
 }
 
+// Normalise a name for fuzzy comparison: strip www prefixes, bracket groups,
+// replace dots/underscores/dashes with spaces, collapse whitespace, lowercase.
+function normalizeName(name: string): string {
+  return name
+    .replace(/^www\.[a-z0-9.-]+\s*[-–—]+\s*/i, '')
+    .replace(/\[.*?\]/g, ' ')
+    .replace(/\./g, ' ')
+    .replace(/[_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+// Find the best matching entry (file or folder) inside TORRENTS_DIR for the
+// given torrent name from the DB. Tries exact → case-insensitive → normalised
+// → prefix → word-score before giving up.
+async function resolveActualEntry(folderName: string): Promise<string | null> {
+  let entries: string[] = []
+  try {
+    const { stdout } = await execAsync(`ls -1 ${shellEscape(TORRENTS_DIR)} 2>/dev/null`)
+    entries = stdout.trim().split('\n').filter(Boolean)
+  } catch {
+    return null
+  }
+
+  if (entries.length === 0) return null
+
+  // 1. Exact
+  if (entries.includes(folderName)) return folderName
+
+  // 2. Case-insensitive exact
+  const lower = folderName.toLowerCase()
+  const ci = entries.find((e) => e.toLowerCase() === lower)
+  if (ci) return ci
+
+  // 3. Normalised exact
+  const normTarget = normalizeName(folderName)
+  const normExact = entries.find((e) => normalizeName(e) === normTarget)
+  if (normExact) return normExact
+
+  // 4. One is a prefix of the other (after normalisation)
+  const prefixMatch = entries.find((e) => {
+    const ne = normalizeName(e)
+    return ne.startsWith(normTarget) || normTarget.startsWith(ne)
+  })
+  if (prefixMatch) return prefixMatch
+
+  // 5. Word-overlap score: at least 60 % of significant words from the target
+  //    appear in the candidate
+  const words = normTarget.split(' ').filter((w) => w.length > 2)
+  if (words.length >= 2) {
+    const scored = entries.map((e) => {
+      const ne = normalizeName(e)
+      const hits = words.filter((w) => ne.includes(w)).length
+      return { e, score: hits / words.length }
+    })
+    scored.sort((a, b) => b.score - a.score)
+    if (scored[0].score >= 0.6) return scored[0].e
+  }
+
+  return null
+}
+
 const folderPlanSchema = z.object({
   mediaType: z.enum(['movie', 'series']),
   destinationBase: z.enum(DEST_BASES),
@@ -94,7 +157,11 @@ export async function POST(req: NextRequest) {
           return { folderName, downloadId, error: 'Invalid folder name' }
         }
 
-        const cleanedName = cleanTorrentName(folderName)
+        // Resolve the actual entry on disk — the DB torrent_name often differs
+        // from the real folder/file name (dots vs spaces, www prefixes, [YTS.MX]
+        // suffixes, etc.), so fall back to fuzzy matching when exact fails.
+        let resolvedName = folderName
+        let resolvedPath = sourcePath
 
         let fileListing = ''
         try {
@@ -107,8 +174,26 @@ export async function POST(req: NextRequest) {
         }
 
         if (!fileListing) {
-          return { folderName, downloadId, error: 'Source folder not found or empty' }
+          const matched = await resolveActualEntry(folderName)
+          if (matched) {
+            resolvedName = matched
+            resolvedPath = sanitizePath(`${TORRENTS_DIR}/${matched}`)
+            try {
+              const { stdout } = await execAsync(
+                `find ${shellEscape(resolvedPath)} -type f 2>/dev/null | sort | head -500`
+              )
+              fileListing = stdout.trim()
+            } catch {
+              // ignore
+            }
+          }
         }
+
+        if (!fileListing) {
+          return { folderName, downloadId, error: 'Source folder not found in /mnt/storage/torrents/' }
+        }
+
+        const cleanedName = cleanTorrentName(resolvedName)
 
         let dbHint = ''
         if (downloadId) {
@@ -127,7 +212,7 @@ export async function POST(req: NextRequest) {
             model: openai('gpt-4o-mini'),
             schema: folderPlanSchema,
             system: SYSTEM_PROMPT,
-            prompt: `Torrent folder: ${folderName}
+            prompt: `Torrent folder: ${resolvedName}
 Clean name: ${cleanedName}${dbHint}
 
 Files:
