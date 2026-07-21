@@ -84,6 +84,30 @@ QBITTORRENT_USERNAME=admin
 QBITTORRENT_PASSWORD=your-qbt-password
 ```
 
+Both of these are optional and fall back to the defaults shown:
+
+```env
+STORAGE_ROOT=/mnt/storage              # Movies/, Series/ and torrents/ hang off this
+TPB_BASE=https://www3.thepiratebay3.to # override when the mirror moves
+AUTO_ORGANIZE=true                     # set false to organise by hand only
+AUTO_ORGANIZE_INTERVAL_MS=300000       # sweep period, clamped to a 30s minimum
+```
+
+### Automatic organising
+
+The server sweeps on a timer: it reconciles tracked downloads with qBittorrent,
+then plans and files anything qBittorrent has finished — the same plan/execute
+pipeline the review modal drives, without the review step.
+
+- The sweep runs inside the app process, so it works with no browser open.
+- A download is claimed by flipping it to `organizing`, so two sweeps (or a
+  sweep and a manual run) can't both take the same item.
+- A failure is retried once, then left `failed` in the library for you to look at.
+- `POST /api/library/auto-organize` triggers a sweep on demand.
+
+Organising overwrites an existing destination folder, exactly as the manual
+flow does. Overwrites are logged with an `OVERWRITE` action so there is a trail.
+
 ---
 
 ## Deploying to Server
