@@ -153,11 +153,36 @@ describe("replace mode", () => {
     expect(read("Season 02/Suits (2011) - s02e01.mkv")).toBe("video");
   });
 
-  it("is the default, preserving the reviewed manual flow", async () => {
+  it("is never what a caller gets by omitting the option", async () => {
     existingSeason("Season 01", "Suits (2011) - s01e01.mkv");
     const src = sourceFile("s02e01.mkv");
 
     await executePlans([plan(src, "Season 02/Suits (2011) - s02e01.mkv")]);
+
+    expect(read("Season 01/Suits (2011) - s01e01.mkv")).toBe("already here");
+  });
+});
+
+describe("per-plan mode", () => {
+  it("lets one folder replace while another merges in the same run", async () => {
+    existingSeason("Season 01", "Suits (2011) - s01e01.mkv");
+    const src = sourceFile("s02e01.mkv");
+
+    const merging = { ...plan(src, "Season 02/Suits (2011) - s02e01.mkv"), mode: "merge" as const };
+    await executePlans([merging], () => {}, { mode: "replace" });
+
+    expect(read("Season 01/Suits (2011) - s01e01.mkv")).toBe("already here");
+  });
+
+  it("honours an explicit replace even when the batch default is merge", async () => {
+    existingSeason("Season 01", "Suits (2011) - s01e01.mkv");
+    const src = sourceFile("s02e01.mkv");
+
+    const replacing = {
+      ...plan(src, "Season 02/Suits (2011) - s02e01.mkv"),
+      mode: "replace" as const,
+    };
+    await executePlans([replacing], () => {}, { mode: "merge" });
 
     expect(read("Season 01/Suits (2011) - s01e01.mkv")).toBeNull();
   });

@@ -15,6 +15,9 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(plans) || plans.length === 0) {
       return Response.json({ error: "plans array is required" }, { status: 400 });
     }
+    // Anything other than an explicit "replace" falls back to merging, so a
+    // malformed mode can never turn into a delete.
+    plans = plans.map((p) => ({ ...p, mode: p.mode === "replace" ? "replace" : "merge" }));
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }

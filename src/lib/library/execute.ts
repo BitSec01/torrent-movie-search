@@ -13,8 +13,10 @@ import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import path from "node:path";
 import { moviesDir, seriesDir, torrentsDir } from "@/lib/config";
-import { sanitizePath, shellEscape } from "./plan";
-import type { ExecuteEvent, FolderOutcome, FolderPlan } from "./types";
+import { sanitizePath, shellEscape } from "./paths";
+import type { ExecuteEvent, ExecuteMode, FolderOutcome, FolderPlan } from "./types";
+
+export type { ExecuteMode };
 
 const execAsync = promisify(exec);
 
@@ -23,14 +25,6 @@ const SERIES_DIR = seriesDir();
 const TORRENTS_DIR = torrentsDir();
 
 type Emit = (event: ExecuteEvent["event"], data: Record<string, unknown>) => void;
-
-/**
- * "replace" wipes the destination folder first, giving a clean slate after a
- * bad plan. "merge" leaves whatever is already there and copies alongside it —
- * required for series, where seasons and episodes arrive over separate
- * downloads and a wipe would destroy the ones already filed.
- */
-export type ExecuteMode = "replace" | "merge";
 
 export interface ExecuteOptions {
   mode?: ExecuteMode;
@@ -98,8 +92,9 @@ async function hasEnoughSpace(folderName: string, destinationBase: string): Prom
   return null;
 }
 
-async function executePlan(plan: FolderPlan, emit: Emit, mode: ExecuteMode): Promise<FolderOutcome> {
+async function executePlan(plan: FolderPlan, emit: Emit, fallbackMode: ExecuteMode): Promise<FolderOutcome> {
   const { folderName, downloadId, rootFolder, destinationBase, operations } = plan;
+  const mode = plan.mode ?? fallbackMode;
   const base: FolderOutcome = { folderName, downloadId, copied: 0, failed: 0 };
 
   let destRoot: string;
@@ -229,7 +224,10 @@ async function executePlan(plan: FolderPlan, emit: Emit, mode: ExecuteMode): Pro
 export async function executePlans(
   plans: FolderPlan[],
   emit: Emit = () => {},
-  { mode = "replace" }: ExecuteOptions = {}
+  // Merge by default: replacing destroys whatever was filed there previously,
+  // so it has to be an explicit choice rather than something a caller gets by
+  // forgetting to pass an option.
+  { mode = "merge" }: ExecuteOptions = {}
 ): Promise<FolderOutcome[]> {
   const outcomes: FolderOutcome[] = [];
   for (const plan of plans) {

@@ -14,27 +14,15 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { moviesDir, organizeModel, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
+import { moviesDir, organizeModel, seriesDir, torrentsDir } from "@/lib/config";
+import { sanitizePath, shellEscape } from "./paths";
 import type { PlanResult } from "./types";
 
 const execAsync = promisify(exec);
 
-const STORAGE_ROOT = storageRoot();
 const TORRENTS_DIR = torrentsDir();
 
 export const DEST_BASES = [moviesDir(), seriesDir()] as const;
-
-export function sanitizePath(p: string): string {
-  const resolved = p.replace(/\/+/g, "/").replace(/\.\./g, "");
-  if (!resolved.startsWith(STORAGE_ROOT)) {
-    throw new Error("Path outside allowed storage root");
-  }
-  return resolved;
-}
-
-export function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
 
 function cleanTorrentName(raw: string): string {
   let name = raw;
