@@ -112,6 +112,8 @@ export interface TorrentLink {
   size: string;
   magnet?: string;
   link?: string;
+  /** Info hash — what the AI tools reference instead of the full magnet URI */
+  id?: string;
 }
 
 // ── Unified / merged types ──

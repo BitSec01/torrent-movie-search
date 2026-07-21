@@ -8,7 +8,7 @@ import type { UnifiedSearchResult } from "@/lib/api/types";
 function ToolIndicator({ part }: { part: { type: string; state: string; input?: unknown; output?: unknown } }) {
   const isLoading = part.state === "input-streaming" || part.state === "input-available";
   const input = part.input as Record<string, unknown> | undefined;
-  const isDownload = input && "magnet" in input;
+  const isDownload = input && "torrentId" in input;
 
   // Download tool
   if (isDownload) {
