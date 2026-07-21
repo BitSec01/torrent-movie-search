@@ -118,6 +118,50 @@ describe("startAutoOrganizeScheduler", () => {
     expect(runMock).toHaveBeenCalledTimes(1);
   });
 
+  it("reports on the first tick so a restart visibly confirms the loop runs", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    startAutoOrganizeScheduler();
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    expect(log).toHaveBeenCalledWith("[Auto-organize] idle, nothing to organise");
+  });
+
+  it("stays quiet on idle ticks within the heartbeat window", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    startAutoOrganizeScheduler();
+    await jest.advanceTimersByTimeAsync(60_000);
+    log.mockClear();
+
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("beats again after an hour of idleness", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    startAutoOrganizeScheduler();
+    await jest.advanceTimersByTimeAsync(60_000);
+    log.mockClear();
+
+    await jest.advanceTimersByTimeAsync(60 * 60_000);
+
+    expect(log).toHaveBeenCalledWith("[Auto-organize] idle, nothing to organise");
+  });
+
+  it("counts real work as proof of life rather than also beating", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    runMock.mockResolvedValue({ claimed: 1, organized: 1, failed: 0, skipped: 0 });
+
+    startAutoOrganizeScheduler();
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    expect(log).toHaveBeenCalledWith("[Auto-organize] swept: 1 organised, 0 failed, 0 skipped");
+    expect(log).not.toHaveBeenCalledWith("[Auto-organize] idle, nothing to organise");
+  });
+
   it("clamps a too-aggressive interval to avoid hammering qBittorrent", async () => {
     stopAutoOrganizeScheduler();
     process.env.AUTO_ORGANIZE_INTERVAL_MS = "1000";

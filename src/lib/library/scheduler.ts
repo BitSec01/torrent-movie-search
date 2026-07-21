@@ -12,7 +12,13 @@ import { runAutoOrganize } from "./auto-organize";
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_INTERVAL_MS = 30 * 1000;
 
+/** An idle sweep is silent, which makes a dead timer indistinguishable from a
+ *  quiet one. A periodic line proves the loop is still alive without logging
+ *  every few minutes. */
+const HEARTBEAT_MS = 60 * 60 * 1000;
+
 let timer: NodeJS.Timeout | null = null;
+let lastReportAt = 0;
 
 function intervalMs(): number {
   const raw = Number(process.env.AUTO_ORGANIZE_INTERVAL_MS);
@@ -27,10 +33,15 @@ export function isAutoOrganizeEnabled(): boolean {
 async function tick(): Promise<void> {
   try {
     const result = await runAutoOrganize((message) => console.log("[Auto-organize]", message));
+
     if (result.claimed > 0) {
       console.log(
         `[Auto-organize] swept: ${result.organized} organised, ${result.failed} failed, ${result.skipped} skipped`
       );
+      lastReportAt = Date.now();
+    } else if (Date.now() - lastReportAt >= HEARTBEAT_MS) {
+      console.log("[Auto-organize] idle, nothing to organise");
+      lastReportAt = Date.now();
     }
   } catch (err) {
     // Never let a bad sweep kill the timer — the next one may well succeed
@@ -43,6 +54,9 @@ export function startAutoOrganizeScheduler(): void {
 
   const period = intervalMs();
   console.log(`[Auto-organize] scheduler started, every ${Math.round(period / 1000)}s`);
+
+  // Report on the first tick so a restart visibly confirms the loop is running
+  lastReportAt = 0;
 
   const loop = () => {
     timer = setTimeout(() => {
