@@ -14,7 +14,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { moviesDir, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
+import { moviesDir, organizeModel, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
 import type { PlanResult } from "./types";
 
 const execAsync = promisify(exec);
@@ -191,7 +191,7 @@ export async function planFolder({ folderName, downloadId }: PlanRequest): Promi
 
   try {
     const { object } = await generateObject({
-      model: openai("gpt-5.4-mini"),
+      model: openai(organizeModel()),
       schema: folderPlanSchema,
       system: SYSTEM_PROMPT,
       prompt: `Torrent folder: ${resolvedName}

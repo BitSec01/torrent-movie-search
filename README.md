@@ -91,7 +91,24 @@ STORAGE_ROOT=/mnt/storage              # Movies/, Series/ and torrents/ hang off
 TPB_BASE=https://www3.thepiratebay3.to # override when the mirror moves
 AUTO_ORGANIZE=true                     # set false to organise by hand only
 AUTO_ORGANIZE_INTERVAL_MS=300000       # sweep period, clamped to a 30s minimum
+CHAT_MODEL=gpt-5.4-nano                # drives nearly all API cost
+ORGANIZE_MODEL=gpt-5.4-mini            # one call per download, cheap in aggregate
 ```
+
+### Model cost
+
+The chat agent loops up to 10 times per user message, so one message is up to
+ten API requests with a context that grows each step. Its model choice therefore
+dominates the bill — measured per 10-step turn with the real system prompt:
+
+| model | $/turn |
+|---|---|
+| gpt-5.4 | $0.056 |
+| gpt-5.4-mini | $0.017 |
+| gpt-5.4-nano | $0.005 |
+
+The organiser runs once per completed download, so it stays on a more capable
+model. Change either via env and restart — no rebuild needed.
 
 ### Automatic organising
 

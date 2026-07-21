@@ -1,7 +1,7 @@
 import { openai } from "@ai-sdk/openai";
 import { streamText, stepCountIs, convertToModelMessages } from "ai";
 import { chatTools } from "@/lib/ai/chat-tools";
-import { moviesDir, torrentsDir } from "@/lib/config";
+import { chatModel, moviesDir, torrentsDir } from "@/lib/config";
 
 export const maxDuration = 60;
 
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   const modelMessages = await convertToModelMessages(messages);
 
   const result = streamText({
-    model: openai("gpt-5.4"),
+    model: openai(chatModel()),
     system: buildSystemPrompt(),
     messages: modelMessages,
     stopWhen: stepCountIs(MAX_STEPS),

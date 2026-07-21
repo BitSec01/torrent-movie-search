@@ -4,7 +4,7 @@ import { generateText, zodSchema, stepCountIs } from "ai";
 import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { moviesDir, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
+import { moviesDir, organizeModel, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
 
 const execAsync = promisify(exec);
 
@@ -116,7 +116,7 @@ export async function POST() {
     let summary = "";
 
     const result = await generateText({
-      model: openai("gpt-5.4-mini"),
+      model: openai(organizeModel()),
       system: SYSTEM_PROMPT,
       prompt: `Please organize the following items from ${TORRENTS_DIR}:
 

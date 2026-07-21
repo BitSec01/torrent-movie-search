@@ -39,3 +39,20 @@ export function tpbBase(): string {
 export function savePathFor(contentType: "movie" | "series"): string {
   return contentType === "movie" ? moviesDir() : torrentsDir();
 }
+
+/**
+ * The chat agent loops up to MAX_STEPS per message, so its per-token price is
+ * multiplied by roughly an order of magnitude — it dominates the API bill and
+ * wants the cheapest model that can still pick the right torrent.
+ */
+export function chatModel(): string {
+  return process.env.CHAT_MODEL || "gpt-5.4-nano";
+}
+
+/**
+ * The organiser runs once per completed download and names files that land in
+ * the real library, so it is cheap in aggregate and worth more capability.
+ */
+export function organizeModel(): string {
+  return process.env.ORGANIZE_MODEL || "gpt-5.4-mini";
+}
