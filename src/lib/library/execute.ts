@@ -24,6 +24,27 @@ const TORRENTS_DIR = torrentsDir();
 
 type Emit = (event: ExecuteEvent["event"], data: Record<string, unknown>) => void;
 
+/**
+ * "replace" wipes the destination folder first, giving a clean slate after a
+ * bad plan. "merge" leaves whatever is already there and copies alongside it —
+ * required for series, where seasons and episodes arrive over separate
+ * downloads and a wipe would destroy the ones already filed.
+ */
+export type ExecuteMode = "replace" | "merge";
+
+export interface ExecuteOptions {
+  mode?: ExecuteMode;
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await execAsync(`test -e ${shellEscape(p)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function copyFileWithProgress(
   src: string,
   dst: string,
@@ -77,7 +98,7 @@ async function hasEnoughSpace(folderName: string, destinationBase: string): Prom
   return null;
 }
 
-async function executePlan(plan: FolderPlan, emit: Emit): Promise<FolderOutcome> {
+async function executePlan(plan: FolderPlan, emit: Emit, mode: ExecuteMode): Promise<FolderOutcome> {
   const { folderName, downloadId, rootFolder, destinationBase, operations } = plan;
   const base: FolderOutcome = { folderName, downloadId, copied: 0, failed: 0 };
 
@@ -107,20 +128,24 @@ async function executePlan(plan: FolderPlan, emit: Emit): Promise<FolderOutcome>
   }
   emit("log", { folderName, action: "INFO", detail: "Disk space OK" });
 
-  // Clean slate. Logged explicitly because an unattended sweep can reach this
-  // path without anyone having reviewed the plan first.
-  try {
-    const { stdout } = await execAsync(`ls -A ${shellEscape(destRoot)} 2>/dev/null | head -1`);
-    if (stdout.trim()) {
+  const destExisted = await pathExists(destRoot);
+
+  if (mode === "replace") {
+    // Logged explicitly because this discards whatever was already filed here
+    if (destExisted) {
       emit("log", {
         folderName,
         action: "OVERWRITE",
         detail: `Replacing existing contents of ${destRoot}`,
       });
     }
-    await execAsync(`rm -rf ${shellEscape(destRoot)}`);
-  } catch {
-    // Already gone or never existed
+    try {
+      await execAsync(`rm -rf ${shellEscape(destRoot)}`);
+    } catch {
+      // Already gone or never existed
+    }
+  } else if (destExisted) {
+    emit("log", { folderName, action: "MERGE", detail: `Adding to existing ${destRoot}` });
   }
 
   const dirs = new Set([destRoot]);
@@ -165,7 +190,12 @@ async function executePlan(plan: FolderPlan, emit: Emit): Promise<FolderOutcome>
       // ignore
     }
 
-    emit("log", { folderName, action: "COPY", detail: `${fileName}${sizeLabel}` });
+    const replacing = mode === "merge" && (await pathExists(safeDst));
+    emit("log", {
+      folderName,
+      action: replacing ? "REPLACE" : "COPY",
+      detail: `${fileName}${sizeLabel}`,
+    });
 
     try {
       let lastPct = -1;
@@ -196,10 +226,14 @@ async function executePlan(plan: FolderPlan, emit: Emit): Promise<FolderOutcome>
   return { ...base, destination: destRoot, copied, failed };
 }
 
-export async function executePlans(plans: FolderPlan[], emit: Emit = () => {}): Promise<FolderOutcome[]> {
+export async function executePlans(
+  plans: FolderPlan[],
+  emit: Emit = () => {},
+  { mode = "replace" }: ExecuteOptions = {}
+): Promise<FolderOutcome[]> {
   const outcomes: FolderOutcome[] = [];
   for (const plan of plans) {
-    outcomes.push(await executePlan(plan, emit));
+    outcomes.push(await executePlan(plan, emit, mode));
   }
   emit("complete", { organized: plans.length });
   return outcomes;

@@ -100,6 +100,18 @@ describe("runAutoOrganize", () => {
     expect(statusOf(id).errorMessage).toBeNull();
   });
 
+  it("merges rather than replacing, so earlier seasons survive", async () => {
+    seed();
+
+    await runAutoOrganize();
+
+    expect(executePlansMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(Function),
+      { mode: "merge" }
+    );
+  });
+
   it("reconciles with qBittorrent before deciding what is complete", async () => {
     await runAutoOrganize();
 

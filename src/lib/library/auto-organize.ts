@@ -127,9 +127,18 @@ export async function runAutoOrganize(
     }
 
     try {
-      const [outcome] = await executePlans([result], (event, data) => {
-        if (event === "log" && data.action === "OVERWRITE") log(String(data.detail));
-      });
+      // Merge, never replace: seasons and episodes of one show arrive across
+      // separate downloads, and wiping the folder would delete the ones
+      // already filed.
+      const [outcome] = await executePlans(
+        [result],
+        (event, data) => {
+          if (event === "log" && (data.action === "MERGE" || data.action === "REPLACE")) {
+            log(String(data.detail));
+          }
+        },
+        { mode: "merge" }
+      );
 
       if (outcome.error || outcome.copied === 0) {
         const error = outcome.error ?? "No files were copied";
