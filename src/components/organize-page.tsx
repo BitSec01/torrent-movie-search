@@ -73,7 +73,7 @@ export function OrganizePage() {
                 Organise
               </h1>
               <p className="mt-2 text-sm text-zinc-500">
-                View and organise files in /mnt/storage
+                View and organise files in your media storage
               </p>
             </div>
             <button

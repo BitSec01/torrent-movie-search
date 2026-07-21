@@ -1,7 +1,6 @@
 import { parse } from "node-html-parser";
 import type { TorrentLink } from "./types";
-
-const TPB_BASE = "https://www2.thepiratebay3.to";
+import { tpbBase } from "@/lib/config";
 
 /**
  * Scrape ThePirateBay search results page directly.
@@ -19,7 +18,7 @@ export async function searchTPB(
       video: "on",
       category: "0",
     });
-    const url = `${TPB_BASE}/s/0/5/0?${params.toString()}`;
+    const url = `${tpbBase()}/s/0/5/0?${params.toString()}`;
 
     const res = await fetch(url, {
       headers: {

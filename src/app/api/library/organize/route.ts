@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { download } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { torrentsDir } from "@/lib/config";
 
-const TORRENTS_DIR = "/mnt/storage/torrents";
+const TORRENTS_DIR = torrentsDir();
 
 /**
  * POST /api/library/organize
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Determine the folder name inside /mnt/storage/torrents/
+    // Determine the folder name inside the torrents staging dir
     const folderName = target.torrentName || (
       target.originalPath?.startsWith(TORRENTS_DIR)
         ? target.originalPath.slice(TORRENTS_DIR.length + 1)

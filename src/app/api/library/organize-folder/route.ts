@@ -8,13 +8,14 @@ import { z } from "zod";
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import { moviesDir, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
 
 const execAsync = promisify(exec);
 
-const STORAGE_ROOT = "/mnt/storage";
-const MOVIES_DIR = `${STORAGE_ROOT}/Movies`;
-const SERIES_DIR = `${STORAGE_ROOT}/Series`;
-const TORRENTS_DIR = `${STORAGE_ROOT}/torrents`;
+const STORAGE_ROOT = storageRoot();
+const MOVIES_DIR = moviesDir();
+const SERIES_DIR = seriesDir();
+const TORRENTS_DIR = torrentsDir();
 
 /**
  * Server-side lock: tracks folder names currently being organised.
@@ -62,9 +63,9 @@ function cleanTorrentName(raw: string): string {
 const SYSTEM_PROMPT = `You are a media file organizer for a Plex media server. You are given a single folder or file from the torrents directory and must organise it into the proper Plex-compatible structure.
 
 ## CRITICAL RULES - FOLLOW EXACTLY:
-1. **Movies** go to /mnt/storage/Movies/MovieName (Year)/MovieName (Year).ext
+1. **Movies** go to ${MOVIES_DIR}/MovieName (Year)/MovieName (Year).ext
    Each movie MUST be in its own subfolder.
-2. **TV Series** go to /mnt/storage/Series/ShowName (Year)/Season XX/ShowName (Year) - sXXeXX - EpisodeName.ext
+2. **TV Series** go to ${SERIES_DIR}/ShowName (Year)/Season XX/ShowName (Year) - sXXeXX - EpisodeName.ext
 3. COPY (do not move) video files to the destination so the original torrent folder is preserved for seeding.
    Use copy_file for individual files. The source torrent folder must remain intact.
 4. **Before copying, ALWAYS call delete_directory on the destination folder** to wipe any stale/empty/partial previous attempt. This ensures a clean slate. Then create_directory and copy fresh. The source torrent folder is NEVER deleted — only the destination is wiped.
@@ -99,7 +100,7 @@ Use the "Clean name" (or the known title/year from the database if provided) to 
 ## REQUIRED PROCESS - DO EVERY STEP:
 1. Call list_directory on the source path to see all contents (video files, subtitles, etc.).
 2. Determine if it is a movie or series from the filenames and folder name.
-3. Determine the destination folder path (e.g. /mnt/storage/Movies/War Machine (2026)/).
+3. Determine the destination folder path (e.g. ${MOVIES_DIR}/War Machine (2026)/).
 4. Call delete_directory on the destination folder to remove any previous partial/stale attempt. This is safe — we are about to re-copy everything from the source.
 5. Create the destination directory structure with create_directory.
 6. For EACH video/subtitle file: call copy_file using the EXACT source path from step 1's list_directory output.
@@ -107,9 +108,9 @@ Use the "Clean name" (or the known title/year from the database if provided) to 
 
 ## Examples:
 - Source "The.Substance.2024.2160p.WEBRip.x265/" containing a .mkv
-  -> copy_file to /mnt/storage/Movies/The Substance (2024)/The Substance (2024).mkv
+  -> copy_file to ${MOVIES_DIR}/The Substance (2024)/The Substance (2024).mkv
 - Source "Maid S01 1080p WEBRip x265-/" with 10 episode files
-  -> For each episode: copy_file to /mnt/storage/Series/Maid (2021)/Season 01/Maid (2021) - s01eXX.mkv
+  -> For each episode: copy_file to ${SERIES_DIR}/Maid (2021)/Season 01/Maid (2021) - s01eXX.mkv
   -> Check destination first and skip any that already exist.
 
 IMPORTANT: If you are given the exact title and year from the database, use those values. Otherwise infer from the Clean name. NEVER delete the source. Call mark_complete at the end.`;
@@ -129,7 +130,7 @@ interface LogEntry {
  * - If a matching DB record exists, updates its status so the Library tab stays in sync.
  *
  * Body: { folderName: string, downloadId?: string }
- *   folderName  - name of the folder/file inside /mnt/storage/torrents/
+ *   folderName  - name of the folder/file inside ${TORRENTS_DIR}/
  *   downloadId  - optional DB record ID; if provided the record status is updated
  *                 so the Library tab reflects organising/organised state.
  */
@@ -254,7 +255,7 @@ export async function POST(req: NextRequest) {
           addLog("INFO", "AI is planning file organisation...");
 
           const result = await generateText({
-            model: openai("gpt-4o-mini"),
+            model: openai("gpt-5.4-mini"),
             system: SYSTEM_PROMPT,
             prompt: `Please organise this item from the torrents folder:
 
@@ -278,7 +279,7 @@ Step 5: Copy each video/subtitle file using the EXACT source paths from step 1. 
 Step 6: Call mark_complete with a summary.`,
             tools: {
               list_directory: {
-                description: "List all files and subfolders in a directory within /mnt/storage",
+                description: `List all files and subfolders in a directory within ${STORAGE_ROOT}`,
                 inputSchema: zodSchema(z.object({
                   path: z.string().describe("Absolute path to list"),
                 })),
@@ -296,7 +297,7 @@ Step 6: Call mark_complete with a summary.`,
                 },
               },
               delete_directory: {
-                description: "Delete a directory and all its contents within /mnt/storage/Movies or /mnt/storage/Series. Use this to wipe a previous destination folder before re-copying. NEVER use on source/torrent paths.",
+                description: `Delete a directory and all its contents within ${MOVIES_DIR} or ${SERIES_DIR}. Use this to wipe a previous destination folder before re-copying. NEVER use on source/torrent paths.`,
                 inputSchema: zodSchema(z.object({
                   path: z.string().describe("Absolute path of directory to delete (must be inside Movies/ or Series/)"),
                 })),
@@ -316,7 +317,7 @@ Step 6: Call mark_complete with a summary.`,
                 },
               },
               create_directory: {
-                description: "Create a directory (and all parents) within /mnt/storage",
+                description: `Create a directory (and all parents) within ${STORAGE_ROOT}`,
                 inputSchema: zodSchema(z.object({
                   path: z.string().describe("Absolute path of directory to create"),
                 })),
@@ -328,7 +329,7 @@ Step 6: Call mark_complete with a summary.`,
                 },
               },
               copy_file: {
-                description: "Copy a single file from source to destination within /mnt/storage. Preserves the original torrent folder for seeding.",
+                description: `Copy a single file from source to destination within ${STORAGE_ROOT}. Preserves the original torrent folder for seeding.`,
                 inputSchema: zodSchema(z.object({
                   source: z.string().describe("Absolute source file path"),
                   destination: z.string().describe("Absolute destination file path including the new filename"),
@@ -373,7 +374,7 @@ Step 6: Call mark_complete with a summary.`,
               mark_complete: {
                 description: "Mark this folder organisation as complete. Call when all files have been processed.",
                 inputSchema: zodSchema(z.object({
-                  destinationPath: z.string().describe("The final destination root path (e.g. /mnt/storage/Movies/MovieName (Year) or /mnt/storage/Series/ShowName (Year))"),
+                  destinationPath: z.string().describe("The final destination root path (e.g. ${MOVIES_DIR}/MovieName (Year) or ${SERIES_DIR}/ShowName (Year))"),
                   summary: z.string().describe("Brief summary of what was done"),
                 })),
                 execute: async ({ destinationPath, summary }: { destinationPath: string; summary: string }) => {

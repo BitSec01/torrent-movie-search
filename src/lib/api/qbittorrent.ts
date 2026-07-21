@@ -4,7 +4,9 @@
  * See: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)
  */
 
-const DEFAULT_SAVE_PATH = "/mnt/storage/torrents";
+import { torrentsDir } from "@/lib/config";
+
+const DEFAULT_SAVE_PATH = torrentsDir();
 
 export interface QbtTorrentInfo {
   hash: string;

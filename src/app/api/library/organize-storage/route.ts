@@ -4,13 +4,14 @@ import { generateText, zodSchema, stepCountIs } from "ai";
 import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { moviesDir, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
 
 const execAsync = promisify(exec);
 
-const STORAGE_ROOT = "/mnt/storage";
-const MOVIES_DIR = `${STORAGE_ROOT}/Movies`;
-const SERIES_DIR = `${STORAGE_ROOT}/Series`;
-const TORRENTS_DIR = `${STORAGE_ROOT}/torrents`;
+const STORAGE_ROOT = storageRoot();
+const MOVIES_DIR = moviesDir();
+const SERIES_DIR = seriesDir();
+const TORRENTS_DIR = torrentsDir();
 
 function sanitizePath(p: string): string {
   const resolved = p.replace(/\/+/g, "/").replace(/\.\./g, "");
@@ -27,9 +28,9 @@ function shellEscape(s: string): string {
 const SYSTEM_PROMPT = `You are a media file organizer for a Plex media server. You are given a listing of items in the torrents download folder that need to be organized into proper Plex-compatible structure.
 
 ## Rules:
-1. **Movies** go to /mnt/storage/Movies/MovieName (Year)/MovieName (Year).ext
+1. **Movies** go to ${MOVIES_DIR}/MovieName (Year)/MovieName (Year).ext
    Movies should ALWAYS be in a subfolder even if it's a single file.
-2. **TV Series** go to /mnt/storage/Series/ShowName (Year)/Season XX/ShowName (Year) - sXXeXX.ext
+2. **TV Series** go to ${SERIES_DIR}/ShowName (Year)/Season XX/ShowName (Year) - sXXeXX.ext
 3. Clean filenames: remove quality tags (720p, 1080p, BrRip, x264, YIFY, etc.), group names, encoding info.
 4. Keep video files (.mkv, .mp4, .avi, .m4v, .wmv) and subtitle files (.srt, .sub, .ass, .ssa, .vtt, .smi).
 5. Remove junk: .txt, .nfo, .jpg, .png, sample files, .exe, .dll.
@@ -56,7 +57,7 @@ interface LogEntry {
 
 /**
  * POST /api/library/organize-storage
- * Scans /mnt/storage/torrents for unorganized items and uses AI to organize them.
+ * Scans the torrents staging dir for unorganized items and uses AI to organize them.
  * Returns a log of all actions taken.
  */
 export async function POST() {
@@ -115,7 +116,7 @@ export async function POST() {
     let summary = "";
 
     const result = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: openai("gpt-5.4-mini"),
       system: SYSTEM_PROMPT,
       prompt: `Please organize the following items from ${TORRENTS_DIR}:
 
@@ -135,7 +136,7 @@ If an item already exists in Movies/ or Series/ (duplicate), just delete the tor
 Process each item, organize it properly, and call mark_complete when ALL items are done.`,
       tools: {
         list_directory: {
-          description: "List files and folders in a directory within /mnt/storage",
+          description: `List files and folders in a directory within ${STORAGE_ROOT}`,
           inputSchema: zodSchema(z.object({
             path: z.string().describe("Absolute path to list"),
           })),
@@ -153,7 +154,7 @@ Process each item, organize it properly, and call mark_complete when ALL items a
           },
         },
         create_directory: {
-          description: "Create a directory (and parents) within /mnt/storage",
+          description: `Create a directory (and parents) within ${STORAGE_ROOT}`,
           inputSchema: zodSchema(z.object({
             path: z.string().describe("Absolute path of directory to create"),
           })),
@@ -165,7 +166,7 @@ Process each item, organize it properly, and call mark_complete when ALL items a
           },
         },
         move_path: {
-          description: "Move a file or directory from source to destination within /mnt/storage",
+          description: `Move a file or directory from source to destination within ${STORAGE_ROOT}`,
           inputSchema: zodSchema(z.object({
             source: z.string().describe("Absolute source path"),
             destination: z.string().describe("Absolute destination path"),
@@ -185,7 +186,7 @@ Process each item, organize it properly, and call mark_complete when ALL items a
           },
         },
         rename_path: {
-          description: "Rename a file or directory within /mnt/storage",
+          description: `Rename a file or directory within ${STORAGE_ROOT}`,
           inputSchema: zodSchema(z.object({
             source: z.string().describe("Current absolute path"),
             newName: z.string().describe("New filename (just the name, not full path)"),
@@ -206,7 +207,7 @@ Process each item, organize it properly, and call mark_complete when ALL items a
           },
         },
         delete_path: {
-          description: "Delete a file or directory within /mnt/storage. Use to clean up junk, malware, or empty folders.",
+          description: `Delete a file or directory within ${STORAGE_ROOT}. Use to clean up junk, malware, or empty folders.`,
           inputSchema: zodSchema(z.object({
             path: z.string().describe("Absolute path to delete"),
           })),

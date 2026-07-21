@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { storageRoot } from "@/lib/config";
 
 const execAsync = promisify(exec);
 
-const STORAGE_ROOT = "/mnt/storage";
+const STORAGE_ROOT = storageRoot();
 
 export interface StorageItem {
   name: string;
@@ -16,7 +17,7 @@ export interface StorageItem {
 
 /**
  * GET /api/library/storage-tree
- * Returns a structured directory tree of /mnt/storage (Movies, Series, torrents).
+ * Returns a structured directory tree of the storage root (Movies, Series, torrents).
  */
 export async function GET() {
   try {
