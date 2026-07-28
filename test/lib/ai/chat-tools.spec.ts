@@ -1,5 +1,8 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/library/add-download", () => ({ addDownload: jest.fn() }));
+
+import { addDownload } from "@/lib/library/add-download";
 import {
   MODEL_TORRENTS_PER_MOVIE,
   MODEL_TORRENT_LIMIT,
@@ -10,6 +13,8 @@ import {
 } from "@/lib/ai/chat-tools";
 import { clearMagnetRegistry, rememberMagnet } from "@/lib/api/magnet-registry";
 import type { TorrentLink } from "@/lib/api/types";
+
+const addDownloadMock = addDownload as jest.MockedFunction<typeof addDownload>;
 
 const TRACKERS = Array.from(
   { length: 18 },
@@ -207,30 +212,44 @@ describe("executeDownload", () => {
     clearMagnetRegistry();
     fetchMock.mockReset();
     global.fetch = fetchMock as unknown as typeof fetch;
-    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+    addDownloadMock.mockReset();
+    addDownloadMock.mockResolvedValue({ success: true, message: "Started" });
     process.env.STORAGE_ROOT = "/srv/media";
   });
 
   it("expands the id back into the full magnet before sending it to qBittorrent", async () => {
     const magnet = magnetFor(1);
     const id = rememberMagnet(magnet)!;
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ message: "Started" }) });
 
     await executeDownload({ torrentId: id, title: "Torrent 1", contentType: "movie" });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.magnet).toBe(magnet);
+    expect(addDownloadMock).toHaveBeenCalledWith(expect.objectContaining({ magnet }));
   });
 
-  it("routes movies and series to different save paths", async () => {
+  it("queues in-process rather than over HTTP, which cannot resolve the app's own host", async () => {
     const id = rememberMagnet(magnetFor(1))!;
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ message: "Started" }) });
+
+    await executeDownload({ torrentId: id, title: "A", contentType: "movie" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports the torrents directory, since the organiser files everything from there", async () => {
+    const id = rememberMagnet(magnetFor(1))!;
 
     const movie = await executeDownload({ torrentId: id, title: "A", contentType: "movie" });
     const series = await executeDownload({ torrentId: id, title: "B", contentType: "series" });
 
-    expect(movie.savePath).toBe("/srv/media/Movies");
+    expect(movie.savePath).toBe("/srv/media/torrents");
     expect(series.savePath).toBe("/srv/media/torrents");
+  });
+
+  it("passes the content type through so the library records it", async () => {
+    const id = rememberMagnet(magnetFor(1))!;
+
+    await executeDownload({ torrentId: id, title: "A", contentType: "series" });
+
+    expect(addDownloadMock).toHaveBeenCalledWith(expect.objectContaining({ type: "series" }));
   });
 
   it("tells the model to search again when the id means nothing", async () => {
@@ -242,21 +261,21 @@ describe("executeDownload", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("Search again");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(addDownloadMock).not.toHaveBeenCalled();
   });
 
   it("surfaces a failed download rather than reporting success", async () => {
     const id = rememberMagnet(magnetFor(1))!;
-    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "qBittorrent unreachable" }) });
+    addDownloadMock.mockResolvedValue({ success: false, message: "qBittorrent unreachable" });
 
     const result = await executeDownload({ torrentId: id, title: "A", contentType: "movie" });
 
     expect(result).toMatchObject({ success: false, message: "qBittorrent unreachable" });
   });
 
-  it("surfaces a network error rather than throwing into the agent loop", async () => {
+  it("surfaces a thrown error rather than throwing into the agent loop", async () => {
     const id = rememberMagnet(magnetFor(1))!;
-    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    addDownloadMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
     const result = await executeDownload({ torrentId: id, title: "A", contentType: "movie" });
 

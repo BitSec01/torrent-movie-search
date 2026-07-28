@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addTorrent, extractHash } from "@/lib/api/qbittorrent";
-import { db } from "@/db";
-import { download } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { addDownload } from "@/lib/library/add-download";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,36 +12,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await addTorrent(magnet);
+    const result = await addDownload({ magnet, title, year, type, imdbId, poster, totalSeasons });
 
     if (!result.success) {
-      return NextResponse.json(
-        { error: result.message },
-        { status: 502 }
-      );
-    }
-
-    // Record in database if we have metadata
-    const hash = extractHash(magnet);
-    if (hash && title) {
-      const now = new Date();
-      const existing = db.select().from(download).where(eq(download.hash, hash)).get();
-      if (!existing) {
-        db.insert(download).values({
-          id: randomUUID(),
-          hash,
-          magnet,
-          title: title || "Unknown",
-          year: year || null,
-          type: type || "movie",
-          imdbId: imdbId || null,
-          poster: poster || null,
-          totalSeasons: totalSeasons || null,
-          status: "downloading",
-          createdAt: now,
-          updatedAt: now,
-        }).run();
-      }
+      return NextResponse.json({ error: result.message }, { status: 502 });
     }
 
     return NextResponse.json({ message: result.message });

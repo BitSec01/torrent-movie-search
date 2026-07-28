@@ -17,7 +17,8 @@ import { mergeSearchResults } from "@/lib/api/merge";
 import { searchTorrents } from "@/lib/api/torrent";
 import { searchTPB } from "@/lib/api/tpb-scraper";
 import { rememberMagnet, resolveMagnet } from "@/lib/api/magnet-registry";
-import { savePathFor } from "@/lib/config";
+import { torrentsDir } from "@/lib/config";
+import { addDownload } from "@/lib/library/add-download";
 import type { TorrentLink, UnifiedSearchResult } from "@/lib/api/types";
 
 /** How many torrents the model sees per search. It picks by seeds and quality,
@@ -164,30 +165,33 @@ export async function executeDownload({
   imdbId,
   poster,
   totalSeasons,
-}: z.infer<typeof downloadInputSchema>) {
+}: z.infer<typeof downloadInputSchema>): Promise<{
+  success: boolean;
+  message: string;
+  savePath?: string;
+}> {
   const magnet = resolveMagnet(torrentId, title);
   if (!magnet) {
     return { success: false, message: `Unknown torrent id: ${torrentId}. Search again to get a current id.` };
   }
 
-  const savePath = savePathFor(contentType);
-
   try {
-    // Go through the download endpoint rather than qBittorrent directly so the
-    // item is recorded in the library.
-    const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/torrents/download`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ magnet, title, year, type: contentType, imdbId, poster, totalSeasons }),
+    const result = await addDownload({
+      magnet,
+      title,
+      year,
+      type: contentType,
+      imdbId,
+      poster,
+      totalSeasons,
     });
 
-    if (res.ok) {
-      const result = await res.json();
-      return { success: true, message: result.message || `Started downloading: ${title}`, savePath };
-    }
+    if (!result.success) return result;
 
-    const error = await res.json();
-    return { success: false, message: error.error || "Failed to download" };
+    // Everything lands in the torrents directory and is filed into Movies or
+    // Series by the organiser, so that is the path to report — not a guess from
+    // contentType, which would describe a destination nothing writes to yet.
+    return { success: true, message: result.message || `Started downloading: ${title}`, savePath: torrentsDir() };
   } catch (err) {
     return { success: false, message: err instanceof Error ? err.message : "Unknown error" };
   }
