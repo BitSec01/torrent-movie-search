@@ -61,6 +61,7 @@ export const download = sqliteTable("download", {
   status: text("status").notNull().default("downloading"), // downloading | completed | organizing | organized | failed
   errorMessage: text("error_message"),
   organizeAttempts: integer("organize_attempts").notNull().default(0),
+  metadataAttempts: integer("metadata_attempts").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

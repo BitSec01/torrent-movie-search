@@ -16,6 +16,7 @@ export const DOWNLOAD_TABLE_DDL = `
     status TEXT NOT NULL DEFAULT 'downloading',
     error_message TEXT,
     organize_attempts INTEGER NOT NULL DEFAULT 0,
+    metadata_attempts INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )

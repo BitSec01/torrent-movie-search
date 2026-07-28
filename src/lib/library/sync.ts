@@ -5,9 +5,9 @@
 
 import { db } from "@/db";
 import { download } from "@/db/schema";
-import { eq, or, isNull, inArray } from "drizzle-orm";
+import { eq, and, or, lt, isNull, inArray } from "drizzle-orm";
 import { getTorrentsInfo } from "@/lib/api/qbittorrent";
-import { searchOmdb } from "@/lib/api/omdb";
+import { searchOmdb, OmdbError } from "@/lib/api/omdb";
 
 const COMPLETE_STATES = ["uploading", "stalledUP", "forcedUP", "pausedUP"];
 
@@ -37,11 +37,26 @@ function removeOrphans(qbtHashes: Set<string>): number {
   return result.changes ?? orphanedIds.length;
 }
 
+/**
+ * A title OMDb has no match for never becomes enriched, so selecting "everything
+ * still missing" re-asks for the same dead titles on every sweep. At one sweep
+ * per five minutes that is ~288 lookups per stuck row per day, against a free
+ * tier of 1,000 — a handful of unmatchable rows exhausts the key on its own.
+ */
+export const MAX_METADATA_ATTEMPTS = 3;
+export const ENRICH_BATCH = 10;
+
 async function enrichMissingMetadata(): Promise<number> {
   const unenriched = db
     .select()
     .from(download)
-    .where(or(isNull(download.poster), isNull(download.imdbId)))
+    .where(
+      and(
+        or(isNull(download.poster), isNull(download.imdbId)),
+        lt(download.metadataAttempts, MAX_METADATA_ATTEMPTS)
+      )
+    )
+    .limit(ENRICH_BATCH)
     .all();
 
   let enriched = 0;
@@ -64,9 +79,21 @@ async function enrichMissingMetadata(): Promise<number> {
             .run();
           enriched++;
         }
+      } else {
+        // OMDb answered and had nothing, so this row is a little closer to
+        // being retired. Only a real answer counts against the budget.
+        db.update(download)
+          .set({ metadataAttempts: d.metadataAttempts + 1 })
+          .where(eq(download.id, d.id))
+          .run();
       }
-    } catch {
-      // Non-fatal: skip enrichment for this download
+    } catch (err) {
+      // A bad key or an exhausted quota fails identically for every row, so the
+      // rest of the batch would only buy the same 401 nine more times.
+      if (err instanceof OmdbError) {
+        console.error("[Sync] OMDb unavailable, abandoning enrichment:", err.message);
+        break;
+      }
     }
   }
   return enriched;

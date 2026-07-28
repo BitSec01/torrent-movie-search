@@ -39,6 +39,9 @@ function ensureColumns(): void {
   if (!existing.has("organize_attempts")) {
     sqlite.exec("ALTER TABLE download ADD COLUMN organize_attempts INTEGER NOT NULL DEFAULT 0");
   }
+  if (!existing.has("metadata_attempts")) {
+    sqlite.exec("ALTER TABLE download ADD COLUMN metadata_attempts INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 ensureColumns();
