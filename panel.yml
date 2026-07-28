@@ -1,0 +1,26 @@
+# How bitpanel deploys this. Names, never host paths — the panel resolves them.
+app: torrent-browser
+build: detected
+port: 3000
+
+volumes:
+  # Its own SQLite database. Survives every deploy; the container's own filesystem does not.
+  - data:/data
+  # The media tree, mounted at the same path it has on the host so STORAGE_ROOT and every
+  # absolute path already in the database keep resolving. Shared with qBittorrent and Plex.
+  - media:/mnt/storage
+
+environments:
+  production:
+    branch: main
+    domain: browse.internal
+    health: /
+
+pipeline:
+  - name: test
+    # The workspace is a fresh checkout with no node_modules, so the deps come first. Slower
+    # than a warm CI cache and still the right trade: a broken test blocks the deploy.
+    image: node:22-alpine
+    run: npm ci --no-audit --no-fund && npm test
+  - name: deploy
+    health: /

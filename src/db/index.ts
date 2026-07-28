@@ -1,11 +1,25 @@
+import fs from "fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema";
 import path from "path";
 
-const sqlite = new Database(
-  path.resolve(process.cwd(), "sqlite.db")
-);
+/**
+ * Where the database lives.
+ *
+ * `DATABASE_PATH` wins so the file can sit on a mounted volume. Resolving it against the
+ * working directory instead — which is what this used to do unconditionally — puts it inside
+ * the container's writable layer, and a container's writable layer is thrown away on every
+ * deploy. The default keeps existing local checkouts working unchanged.
+ */
+const databasePath = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.resolve(process.cwd(), "sqlite.db");
+
+// SQLite creates the file but never its parent directory.
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+
+const sqlite = new Database(databasePath);
 
 /**
  * Columns added after the initial release, applied on startup.
