@@ -5,6 +5,8 @@ import type {
   ImdbDetailResponse,
   OmdbDetailResponse,
   UnifiedDetail,
+  TmdbSearchItem,
+  TmdbDetail,
 } from "./types";
 
 function normalizePoster(poster: string | undefined | null): string | null {
@@ -22,7 +24,8 @@ function normalizeType(raw: string | undefined): string {
 
 export function mergeSearchResults(
   imdbResults: ImdbSearchResult[],
-  omdbResults: OmdbSearchItem[]
+  omdbResults: OmdbSearchItem[],
+  tmdbResults: TmdbSearchItem[] = []
 ): UnifiedSearchResult[] {
   const map = new Map<string, UnifiedSearchResult>();
 
@@ -56,25 +59,51 @@ export function mergeSearchResults(
     }
   }
 
+  // Merge TMDB results — the reliable poster source, and often the only source
+  // still answering when OMDb is rate-limited and the IMDb proxy is down.
+  for (const item of tmdbResults) {
+    const existing = map.get(item.imdbId);
+    if (existing) {
+      if (!existing.poster) existing.poster = item.poster;
+      if (!existing.year && item.year) existing.year = item.year;
+    } else {
+      map.set(item.imdbId, {
+        imdbId: item.imdbId,
+        title: item.title,
+        year: item.year,
+        type: item.type,
+        poster: item.poster,
+      });
+    }
+  }
+
   return Array.from(map.values()).filter((item) => item.title);
 }
 
 export function mergeDetail(
   imdb: ImdbDetailResponse | null,
-  omdb: OmdbDetailResponse | null
+  omdb: OmdbDetailResponse | null,
+  tmdb: TmdbDetail | null = null
 ): UnifiedDetail | null {
-  if (!imdb && !omdb) return null;
+  if (!imdb && !omdb && !tmdb) return null;
 
   const short = imdb?.short;
   const top = imdb?.top;
 
-  const title = omdb?.Title ?? short?.name ?? top?.title ?? "";
-  const imdbId = omdb?.imdbID ?? top?.id ?? "";
+  const title = omdb?.Title ?? short?.name ?? top?.title ?? tmdb?.title ?? "";
+  const imdbId = omdb?.imdbID ?? top?.id ?? tmdb?.imdbId ?? "";
+
+  // OMDb ratings first, then TMDB as a distinct source rather than overwriting.
+  const ratings = omdb?.Ratings?.map((r) => ({ source: r.Source, value: r.Value })) ?? [];
+  if (tmdb?.rating && !ratings.some((r) => r.source === "TMDB")) {
+    ratings.push({ source: "TMDB", value: `${tmdb.rating}/10` });
+  }
 
   return {
     imdbId,
     title,
-    year: omdb?.Year ?? top?.year?.toString() ?? short?.datePublished?.slice(0, 4) ?? "",
+    year:
+      omdb?.Year ?? top?.year?.toString() ?? short?.datePublished?.slice(0, 4) ?? tmdb?.year ?? "",
     rated: omdb?.Rated !== "N/A" ? omdb?.Rated : undefined,
     released: omdb?.Released !== "N/A" ? omdb?.Released : short?.datePublished,
     runtime: omdb?.Runtime !== "N/A" ? omdb?.Runtime : "",
@@ -88,15 +117,24 @@ export function mergeDetail(
       omdb?.Actors !== "N/A"
         ? omdb?.Actors
         : short?.actor?.map((a) => a.name).join(", "),
-    plot: omdb?.Plot !== "N/A" ? omdb?.Plot : short?.description ?? top?.plot,
+    plot:
+      (omdb?.Plot && omdb.Plot !== "N/A" ? omdb.Plot : undefined) ??
+      short?.description ??
+      top?.plot ??
+      tmdb?.plot,
     language: omdb?.Language !== "N/A" ? omdb?.Language : undefined,
     country: omdb?.Country !== "N/A" ? omdb?.Country : undefined,
     awards: omdb?.Awards !== "N/A" ? omdb?.Awards : undefined,
-    poster: normalizePoster(omdb?.Poster) ?? normalizePoster(short?.image) ?? normalizePoster(top?.poster),
-    ratings: omdb?.Ratings?.map((r) => ({ source: r.Source, value: r.Value })) ?? [],
+    poster:
+      normalizePoster(omdb?.Poster) ??
+      normalizePoster(short?.image) ??
+      normalizePoster(top?.poster) ??
+      tmdb?.poster ??
+      null,
+    ratings,
     imdbRating: omdb?.imdbRating !== "N/A" ? omdb?.imdbRating : short?.aggregateRating?.ratingValue?.toString(),
     imdbVotes: omdb?.imdbVotes !== "N/A" ? omdb?.imdbVotes : short?.aggregateRating?.ratingCount?.toString(),
-    type: normalizeType(omdb?.Type ?? short?.type ?? top?.type),
+    type: normalizeType(omdb?.Type ?? short?.type ?? top?.type ?? tmdb?.type),
     boxOffice: omdb?.BoxOffice !== "N/A" ? omdb?.BoxOffice : undefined,
     totalSeasons: omdb?.totalSeasons,
     contentRating: short?.contentRating,

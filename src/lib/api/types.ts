@@ -102,6 +102,67 @@ export interface OmdbDetailResponse {
   Error?: string;
 }
 
+// ── TMDB API types ──
+
+/** A raw /search/multi hit. Movies carry title/release_date, TV carries
+ *  name/first_air_date, and people (filtered out) carry neither. */
+export interface TmdbMultiResult {
+  id: number;
+  media_type: "movie" | "tv" | "person" | string;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+  vote_average?: number;
+}
+
+export interface TmdbMultiResponse {
+  results?: TmdbMultiResult[];
+  total_results?: number;
+}
+
+export interface TmdbExternalIds {
+  imdb_id?: string | null;
+}
+
+export interface TmdbFindItem {
+  id: number;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+  vote_average?: number;
+}
+
+export interface TmdbFindResponse {
+  movie_results?: TmdbFindItem[];
+  tv_results?: TmdbFindItem[];
+}
+
+/** Normalized TMDB search hit, already keyed on the IMDb id the rest of the app
+ *  uses and carrying a fully-qualified poster URL. */
+export interface TmdbSearchItem {
+  imdbId: string;
+  title: string;
+  year: string;
+  type: "movie" | "series";
+  poster: string | null;
+}
+
+export interface TmdbDetail {
+  imdbId: string;
+  title: string;
+  year: string;
+  type: "movie" | "series";
+  poster: string | null;
+  plot?: string;
+  rating?: string;
+}
+
 // ── Torrent types ──
 
 export interface TorrentLink {

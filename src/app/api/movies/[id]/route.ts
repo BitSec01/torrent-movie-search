@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getImdbDetail } from "@/lib/api/imdb";
 import { getOmdbDetail } from "@/lib/api/omdb";
+import { getTmdbDetailByImdb, tmdbConfigured } from "@/lib/api/tmdb";
 import { mergeDetail } from "@/lib/api/merge";
 
 export async function GET(
@@ -17,9 +18,10 @@ export async function GET(
   }
 
   try {
-    const [imdbRes, omdbRes] = await Promise.allSettled([
+    const [imdbRes, omdbRes, tmdbRes] = await Promise.allSettled([
       getImdbDetail(id),
       getOmdbDetail(id, "full"),
+      tmdbConfigured() ? getTmdbDetailByImdb(id) : Promise.resolve(null),
     ]);
 
     const imdb = imdbRes.status === "fulfilled" ? imdbRes.value : null;
@@ -27,8 +29,9 @@ export async function GET(
       omdbRes.status === "fulfilled" && omdbRes.value.Response === "True"
         ? omdbRes.value
         : null;
+    const tmdb = tmdbRes.status === "fulfilled" ? tmdbRes.value : null;
 
-    const detail = mergeDetail(imdb, omdb);
+    const detail = mergeDetail(imdb, omdb, tmdb);
 
     if (!detail) {
       return NextResponse.json({ error: "Title not found" }, { status: 404 });

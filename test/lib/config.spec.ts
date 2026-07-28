@@ -7,6 +7,7 @@ import {
   savePathFor,
   seriesDir,
   storageRoot,
+  tmdbApiKey,
   torrentsDir,
   tpbBase,
 } from "@/lib/config";
@@ -20,6 +21,7 @@ describe("config", () => {
     delete process.env.TPB_BASE;
     delete process.env.CHAT_MODEL;
     delete process.env.ORGANIZE_MODEL;
+    delete process.env.TMDB_API_KEY;
   });
 
   afterAll(() => {
@@ -85,6 +87,18 @@ describe("config", () => {
 
     expect(chatModel()).toBe("gpt-4o-mini");
     expect(organizeModel()).toBe("gpt-5.4");
+  });
+
+  it("treats TMDB as unconfigured when the key is unset or blank", () => {
+    expect(tmdbApiKey()).toBe("");
+
+    process.env.TMDB_API_KEY = "  ";
+    expect(tmdbApiKey()).toBe("");
+  });
+
+  it("trims a configured TMDB key so a stray space never breaks auth", () => {
+    process.env.TMDB_API_KEY = "  abc123  ";
+    expect(tmdbApiKey()).toBe("abc123");
   });
 
   it("sends movies to Movies and series to the torrents staging dir", () => {

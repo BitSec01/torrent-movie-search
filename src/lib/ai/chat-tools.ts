@@ -12,6 +12,7 @@ import { tool, zodSchema } from "ai";
 import { z } from "zod";
 import { searchImdb } from "@/lib/api/imdb";
 import { searchOmdb } from "@/lib/api/omdb";
+import { searchTmdb, tmdbConfigured } from "@/lib/api/tmdb";
 import { mergeSearchResults } from "@/lib/api/merge";
 import { searchTorrents } from "@/lib/api/torrent";
 import { searchTPB } from "@/lib/api/tpb-scraper";
@@ -112,9 +113,10 @@ export async function executeMovieSearch({
 }: z.infer<typeof searchInputSchema>): Promise<MovieSearchOutput> {
   const shouldQueryOmdb = query.length >= 3;
 
-  const [imdbRes, omdbRes, torrentResults, tpbResults] = await Promise.all([
+  const [imdbRes, omdbRes, tmdbResults, torrentResults, tpbResults] = await Promise.all([
     searchImdb(query).catch(() => null),
     shouldQueryOmdb ? searchOmdb(query).catch(() => null) : Promise.resolve(null),
+    tmdbConfigured() ? searchTmdb(query).catch(() => []) : Promise.resolve([]),
     searchTorrents(query, "Movies", 5).catch(() => []),
     searchTPB(query, 5).catch(() => []),
   ]);
@@ -124,7 +126,7 @@ export async function executeMovieSearch({
   const imdbResults = imdbRes?.ok ? imdbRes.description ?? [] : [];
   const omdbResults = omdbRes?.Response === "True" ? omdbRes.Search ?? [] : [];
 
-  const merged = mergeSearchResults(imdbResults, omdbResults);
+  const merged = mergeSearchResults(imdbResults, omdbResults, tmdbResults);
 
   for (const movie of merged) {
     const movieTitle = norm(movie.title);

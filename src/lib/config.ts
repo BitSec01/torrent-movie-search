@@ -34,6 +34,13 @@ export function tpbBase(): string {
   return trimTrailingSlash(process.env.TPB_BASE || DEFAULT_TPB_BASE);
 }
 
+/** TMDB metadata source. Empty when unconfigured, in which case every TMDB
+ *  lookup is skipped rather than failing — it is an optional extra source
+ *  alongside OMDb and the IMDb proxy, not a dependency. */
+export function tmdbApiKey(): string {
+  return (process.env.TMDB_API_KEY || "").trim();
+}
+
 /** Destination for a download, by content kind. Series land in the torrents
  *  staging dir because they still need organising into Season folders. */
 export function savePathFor(contentType: "movie" | "series"): string {
