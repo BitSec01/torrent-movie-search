@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { storageRoot } from "@/lib/config";
-
-const execAsync = promisify(exec);
+import { walkTree } from "@/lib/library/walk";
 
 const STORAGE_ROOT = storageRoot();
 
@@ -27,26 +24,21 @@ export async function GET() {
     for (const section of sections) {
       const sectionPath = `${STORAGE_ROOT}/${section}`;
       try {
-        const { stdout } = await execAsync(
-          `find '${sectionPath}' -maxdepth 3 -printf '%y|%s|%P\\n' 2>/dev/null | head -500`
-        );
+        const entries = await walkTree(sectionPath, 3);
         const items: StorageItem[] = [];
         const dirMap = new Map<string, StorageItem>();
 
-        for (const line of stdout.trim().split("\n")) {
-          if (!line) continue;
-          const [typeChar, sizeStr, relPath] = line.split("|", 3);
-          if (!relPath) continue;
-
+        for (const entry of entries) {
+          const { relPath } = entry;
           const parts = relPath.split("/");
           const name = parts[parts.length - 1];
-          const isDir = typeChar === "d";
+          const isDir = entry.type === "directory";
 
           const item: StorageItem = {
             name,
             path: `${sectionPath}/${relPath}`,
-            type: isDir ? "directory" : "file",
-            ...(isDir ? { children: [] } : { size: formatSize(parseInt(sizeStr || "0", 10)) }),
+            type: entry.type,
+            ...(isDir ? { children: [] } : { size: formatSize(entry.size) }),
           };
 
           if (parts.length === 1) {

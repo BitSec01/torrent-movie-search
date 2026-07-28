@@ -5,6 +5,7 @@ import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { moviesDir, organizeModel, seriesDir, storageRoot, torrentsDir } from "@/lib/config";
+import { walkTree } from "@/lib/library/walk";
 
 const execAsync = promisify(exec);
 
@@ -97,9 +98,9 @@ export async function POST() {
     addLog("SCAN", `Found ${mediaItems.length} items in torrents: ${mediaItems.join(", ")}`);
 
     // Get detailed listing
-    const { stdout: detailedListing } = await execAsync(
-      `find '${TORRENTS_DIR}' -maxdepth 2 -printf '%y|%P\\n' 2>/dev/null | head -200`
-    );
+    const detailedListing = (await walkTree(TORRENTS_DIR, 2, 200))
+      .map((e) => `${e.type === "directory" ? "d" : "f"}|${e.relPath}`)
+      .join("\n");
 
     // Also check what's already in Movies/ and Series/ to avoid duplicates
     let existingMovies = "";
