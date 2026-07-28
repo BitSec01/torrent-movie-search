@@ -9,12 +9,13 @@
 import { db } from "@/db";
 import { download } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { exec, spawn } from "child_process";
+import { exec } from "child_process";
 import { promisify } from "util";
 import path from "node:path";
 import { moviesDir, seriesDir, torrentsDir } from "@/lib/config";
 import { sanitizePath, shellEscape } from "./paths";
 import type { ExecuteEvent, ExecuteMode, FolderOutcome, FolderPlan } from "./types";
+import { createReadStream, createWriteStream, readdirSync, statSync, statfsSync } from "fs";
 
 export type { ExecuteMode };
 
@@ -39,31 +40,56 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * Copies a file, reporting progress.
+ *
+ * Streams it rather than shelling out to rsync. rsync is not present in a slim container image
+ * — and the old fallback to `cp` could not save it: when spawn fails with ENOENT Node emits
+ * *both* `error` and `close`, and the `close` handler rejected before the asynchronous fallback
+ * had finished. The copy therefore succeeded on disk while being reported as a failure, which
+ * is the worst of both outcomes: the file is there and the app believes it is not, so it
+ * retries and counts attempts against it forever.
+ *
+ * A stream copy has no external dependency, works identically everywhere, and still gives a
+ * byte-accurate percentage instead of parsing another program's output.
+ */
 function copyFileWithProgress(
   src: string,
   dst: string,
   onProgress: (pct: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("rsync", ["--progress", "--whole-file", src, dst]);
-    let stderr = "";
+    let total = 0;
+    try {
+      total = statSync(src).size;
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(String(e)));
+      return;
+    }
 
-    proc.stdout.on("data", (chunk: Buffer) => {
-      const match = chunk.toString().match(/(\d+)%/);
-      if (match) onProgress(parseInt(match[1], 10));
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve();
+    };
+
+    const read = createReadStream(src);
+    const write = createWriteStream(dst);
+    let copiedBytes = 0;
+
+    read.on("data", (chunk) => {
+      copiedBytes += chunk.length;
+      // A zero-length file is legitimately 100% done the moment it is created.
+      onProgress(total > 0 ? Math.min(100, Math.round((copiedBytes / total) * 100)) : 100);
     });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(stderr.trim() || `rsync exited ${code}`));
-    });
-    proc.on("error", () => {
-      execAsync(`cp ${shellEscape(src)} ${shellEscape(dst)}`)
-        .then(() => resolve())
-        .catch(reject);
-    });
+
+    read.on("error", finish);
+    write.on("error", finish);
+    write.on("close", () => finish());
+
+    read.pipe(write);
   });
 }
 
@@ -73,21 +99,41 @@ function formatSize(bytes: number): string {
   return ` (${(bytes / 1024).toFixed(0)} KB)`;
 }
 
+/** Total size of a directory tree, in bytes. */
+function directorySize(dir: string): number {
+  let total = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    // Not followed: a symlink's target may be outside the tree, or counted twice.
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) total += directorySize(full);
+    else if (entry.isFile()) total += statSync(full).size;
+  }
+  return total;
+}
+
+/**
+ * Refuses a copy that would not fit.
+ *
+ * Measured with Node's own calls rather than `du -sb` and `df --output=avail`. Both of those
+ * flags are GNU coreutils; busybox has neither, so in an Alpine-based container the whole check
+ * threw and was swallowed by the catch below — silently disabling the one guard standing between
+ * a 60 GB copy and a full disk. The failure mode was invisible precisely because it was
+ * non-fatal by design.
+ */
 async function hasEnoughSpace(folderName: string, destinationBase: string): Promise<string | null> {
   try {
     const sourceDir = sanitizePath(`${TORRENTS_DIR}/${folderName}`);
-    const { stdout: duOut } = await execAsync(`du -sb ${shellEscape(sourceDir)} 2>/dev/null`);
-    const sourceBytes = parseInt(duOut.split("\t")[0], 10);
-    const { stdout: dfOut } = await execAsync(
-      `df --output=avail -B1 ${shellEscape(destinationBase)} 2>/dev/null | tail -1`
-    );
-    const availBytes = parseInt(dfOut.trim(), 10);
+    const sourceBytes = directorySize(sourceDir);
 
-    if (!isNaN(sourceBytes) && !isNaN(availBytes) && sourceBytes > availBytes) {
+    const fsStats = statfsSync(destinationBase);
+    const availBytes = fsStats.bavail * fsStats.bsize;
+
+    if (sourceBytes > availBytes) {
       return `Insufficient space: need ${(sourceBytes / 1e9).toFixed(1)} GB, have ${(availBytes / 1e9).toFixed(1)} GB`;
     }
   } catch {
-    // Non-fatal: proceed without the check
+    // Non-fatal: a source that cannot be measured is caught later by the copy itself.
   }
   return null;
 }
