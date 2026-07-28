@@ -37,49 +37,73 @@ function getConfig() {
   return { host: host.replace(/\/$/, ""), username, password };
 }
 
-let cachedSID: string | null = null;
+/** The whole `name=value` pair, because the name is version-dependent. */
+let cachedCookie: string | null = null;
 
-/** Authenticate with qBittorrent and get SID cookie */
+/**
+ * 4.x names the session cookie `SID`; 5.x names it `QBT_SID_<port>`. Matching on
+ * a bare `SID=` finds neither in 5.x, so the pair is taken whole and replayed
+ * verbatim.
+ */
+function sessionCookie(res: Response): string | null {
+  for (const header of res.headers.getSetCookie()) {
+    const pair = header.split(";")[0]?.trim();
+    if (pair && /^(QBT_)?SID(_\d+)?=/i.test(pair)) return pair;
+  }
+  return null;
+}
+
+/** Authenticate with qBittorrent and get the session cookie */
 async function login(): Promise<string> {
   const { host, username, password } = getConfig();
 
-  const body = new URLSearchParams({ username, password });
   const res = await fetch(`${host}/api/v2/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      // 4.x refuses a login whose Referer is not the WebUI's own origin.
+      Referer: host,
+    },
+    body: new URLSearchParams({ username, password }).toString(),
   });
 
-  if (!res.ok) {
-    throw new Error(`qBittorrent auth failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`qBittorrent auth failed: HTTP ${res.status}`);
+
+  // 4.x answers "Ok." or "Fails."; 5.x answers 204 with an empty body, so an
+  // empty body is success there and must not be read as a rejection.
+  const body = (await res.text()).trim();
+  if (body === "Fails.") {
+    throw new Error(
+      "qBittorrent rejected the credentials — check QBITTORRENT_USERNAME and QBITTORRENT_PASSWORD"
+    );
   }
 
-  const text = await res.text();
-  if (text.trim() !== "Ok.") {
-    throw new Error(`qBittorrent auth rejected: ${text}`);
+  const cookie = sessionCookie(res);
+  if (!cookie) throw new Error("qBittorrent auth: no session cookie returned");
+
+  // 5.x issues a cookie for wrong credentials as readily as for right ones, so
+  // holding one proves nothing. Only an authenticated endpoint separates the
+  // two, and asking here turns a silent 403 loop into one clear error.
+  const probe = await fetch(`${host}/api/v2/app/version`, { headers: { Cookie: cookie } });
+  if (probe.status === 403) {
+    throw new Error(
+      "qBittorrent rejected the credentials — check QBITTORRENT_USERNAME and QBITTORRENT_PASSWORD"
+    );
   }
 
-  // Extract SID from Set-Cookie header
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const sidMatch = setCookie.match(/SID=([^;]+)/);
-  if (!sidMatch) {
-    throw new Error("qBittorrent auth: no SID cookie returned");
-  }
-
-  cachedSID = sidMatch[1];
-  return cachedSID;
+  cachedCookie = cookie;
+  return cookie;
 }
 
-/** Get a valid SID, re-authenticating if needed */
-async function getSID(): Promise<string> {
-  if (cachedSID) {
-    // Verify the SID is still valid
+/** Get a valid session cookie, re-authenticating if needed */
+async function getCookie(): Promise<string> {
+  if (cachedCookie) {
     const { host } = getConfig();
     const res = await fetch(`${host}/api/v2/app/version`, {
-      headers: { Cookie: `SID=${cachedSID}` },
+      headers: { Cookie: cachedCookie },
     });
-    if (res.ok) return cachedSID;
-    cachedSID = null;
+    if (res.ok) return cachedCookie;
+    cachedCookie = null;
   }
   return login();
 }
@@ -89,7 +113,7 @@ export async function addTorrent(
   magnet: string,
   savePath = DEFAULT_SAVE_PATH
 ): Promise<{ success: boolean; message: string }> {
-  const sid = await getSID();
+  const cookie = await getCookie();
   const { host } = getConfig();
 
   const formData = new URLSearchParams({
@@ -101,7 +125,7 @@ export async function addTorrent(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: `SID=${sid}`,
+      Cookie: cookie,
     },
     body: formData.toString(),
   });
@@ -109,13 +133,13 @@ export async function addTorrent(
   if (!res.ok) {
     // If 403, try re-auth once
     if (res.status === 403) {
-      cachedSID = null;
-      const newSid = await login();
+      cachedCookie = null;
+      const newCookie = await login();
       const retryRes = await fetch(`${host}/api/v2/torrents/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          Cookie: `SID=${newSid}`,
+          Cookie: newCookie,
         },
         body: formData.toString(),
       });
@@ -127,6 +151,13 @@ export async function addTorrent(
     return { success: false, message: `qBittorrent returned HTTP ${res.status}` };
   }
 
+  // A magnet qBittorrent declines still comes back 200 — the refusal is in the
+  // body, so a 200 alone is not proof the torrent was queued.
+  const body = (await res.text()).trim();
+  if (body === "Fails.") {
+    return { success: false, message: "qBittorrent refused the magnet link" };
+  }
+
   return { success: true, message: "Torrent added to qBittorrent" };
 }
 
@@ -134,7 +165,7 @@ export async function addTorrent(
 export async function getTorrentsInfo(
   hashes?: string[]
 ): Promise<QbtTorrentInfo[]> {
-  const sid = await getSID();
+  const cookie = await getCookie();
   const { host } = getConfig();
 
   const params = new URLSearchParams();
@@ -145,15 +176,15 @@ export async function getTorrentsInfo(
   const url = `${host}/api/v2/torrents/info${params.toString() ? `?${params}` : ""}`;
 
   const res = await fetch(url, {
-    headers: { Cookie: `SID=${sid}` },
+    headers: { Cookie: cookie },
   });
 
   if (!res.ok) {
     if (res.status === 403) {
-      cachedSID = null;
-      const newSid = await login();
+      cachedCookie = null;
+      const newCookie = await login();
       const retryRes = await fetch(url, {
-        headers: { Cookie: `SID=${newSid}` },
+        headers: { Cookie: newCookie },
       });
       if (!retryRes.ok) return [];
       return retryRes.json();
