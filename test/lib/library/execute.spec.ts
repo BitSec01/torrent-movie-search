@@ -4,6 +4,14 @@
 // mocked fs would not actually prove.
 jest.mock("@/db", () => ({ db: {} }));
 
+// chown stays real so ownership can actually be asserted; the failure test
+// overrides it for a single call.
+jest.mock("node:fs/promises", () => {
+  const actual = jest.requireActual("node:fs/promises");
+  return { ...actual, chown: jest.fn(actual.chown) };
+});
+
+import { chown } from "node:fs/promises";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -185,6 +193,36 @@ describe("per-plan mode", () => {
     await executePlans([replacing], () => {}, { mode: "merge" });
 
     expect(read("Season 01/Suits (2011) - s01e01.mkv")).toBeNull();
+  });
+});
+
+describe("ownership", () => {
+  it("gives what it creates the same owner as the destination root", async () => {
+    const src = sourceFile("s02e01.mkv");
+    const base = fs.statSync(SERIES);
+
+    await executePlans([plan(src, "Season 02/Suits (2011) - s02e01.mkv")], () => {}, {
+      mode: "merge",
+    });
+
+    const file = fs.statSync(path.join(SERIES, "Suits (2011)", "Season 02", "Suits (2011) - s02e01.mkv"));
+    const dir = fs.statSync(path.join(SERIES, "Suits (2011)"));
+    expect([file.uid, file.gid]).toEqual([base.uid, base.gid]);
+    expect([dir.uid, dir.gid]).toEqual([base.uid, base.gid]);
+  });
+
+  it("still reports the copy when ownership cannot be changed", async () => {
+    const src = sourceFile("s02e01.mkv");
+    const denied = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+    (chown as jest.MockedFunction<typeof chown>).mockRejectedValueOnce(denied);
+
+    const [outcome] = await executePlans([plan(src, "Season 02/Suits (2011) - s02e01.mkv")], () => {}, {
+      mode: "merge",
+    });
+
+    expect(outcome.copied).toBe(1);
+    expect(outcome.error).toBeUndefined();
+    expect(read("Season 02/Suits (2011) - s02e01.mkv")).toBe("video");
   });
 });
 

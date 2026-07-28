@@ -16,6 +16,7 @@ import { moviesDir, seriesDir, torrentsDir } from "@/lib/config";
 import { sanitizePath, shellEscape } from "./paths";
 import type { ExecuteEvent, ExecuteMode, FolderOutcome, FolderPlan } from "./types";
 import { createReadStream, createWriteStream, readdirSync, statSync, statfsSync } from "fs";
+import { chown, stat } from "node:fs/promises";
 
 export type { ExecuteMode };
 
@@ -26,6 +27,41 @@ const SERIES_DIR = seriesDir();
 const TORRENTS_DIR = torrentsDir();
 
 type Emit = (event: ExecuteEvent["event"], data: Record<string, unknown>) => void;
+
+/**
+ * Give what we create the ownership the library already uses.
+ *
+ * The app runs as root in its container, so everything it copies lands as
+ * root:root while the rest of the media tree belongs to the host user — readable
+ * by Plex, but not manageable over SSH or SMB without sudo. Taking the owner
+ * from the destination's own parent keeps this correct without hardcoding a uid.
+ *
+ * Best-effort on purpose: only root may chown, and failing to match ownership is
+ * never a reason to fail an otherwise good copy.
+ */
+async function matchParentOwnership(targets: string[], parent: string, emit: Emit, folderName: string): Promise<void> {
+  let owner: { uid: number; gid: number };
+  try {
+    owner = await stat(parent);
+  } catch {
+    return;
+  }
+
+  for (const target of targets) {
+    try {
+      await chown(target, owner.uid, owner.gid);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") continue;
+      emit("log", {
+        folderName,
+        action: "WARN",
+        detail: `could not set ownership on ${path.basename(target)}: ${code ?? e}`,
+      });
+      return;
+    }
+  }
+}
 
 export interface ExecuteOptions {
   mode?: ExecuteMode;
@@ -208,6 +244,7 @@ async function executePlan(plan: FolderPlan, emit: Emit, fallbackMode: ExecuteMo
 
   let copied = 0;
   let failed = 0;
+  const created: string[] = [];
 
   for (const op of operations) {
     let safeSrc: string;
@@ -248,6 +285,7 @@ async function executePlan(plan: FolderPlan, emit: Emit, fallbackMode: ExecuteMo
         }
       });
       emit("log", { folderName, action: "DONE", detail: fileName });
+      created.push(safeDst);
       copied++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -255,6 +293,8 @@ async function executePlan(plan: FolderPlan, emit: Emit, fallbackMode: ExecuteMo
       failed++;
     }
   }
+
+  await matchParentOwnership([...dirs, ...created], destinationBase, emit, folderName);
 
   if (downloadId) {
     db.update(download)
