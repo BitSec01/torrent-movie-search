@@ -111,6 +111,18 @@ describe("addTorrent", () => {
     });
   });
 
+  it("treats a 409 as already queued rather than an error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(withCookies(["QBT_SID_8090=abc"], { status: 204 }))
+      .mockResolvedValueOnce(new Response("v5.2.3", { status: 200 }))
+      .mockResolvedValueOnce(new Response("Conflict", { status: 409 }));
+
+    await expect(loadClient().addTorrent("magnet:?xt=urn:btih:aa")).resolves.toEqual({
+      success: true,
+      message: "Already in qBittorrent",
+    });
+  });
+
   it("reports success on an accepted magnet", async () => {
     fetchMock
       .mockResolvedValueOnce(withCookies(["QBT_SID_8090=abc"], { status: 204 }))

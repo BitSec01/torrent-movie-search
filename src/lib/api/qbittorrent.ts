@@ -130,6 +130,10 @@ export async function addTorrent(
     body: formData.toString(),
   });
 
+  // 5.x answers an add for a torrent it already holds with 409. Asking for
+  // something already queued is not a failure worth showing as one.
+  if (res.status === 409) return { success: true, message: "Already in qBittorrent" };
+
   if (!res.ok) {
     // If 403, try re-auth once
     if (res.status === 403) {
@@ -143,6 +147,7 @@ export async function addTorrent(
         },
         body: formData.toString(),
       });
+      if (retryRes.status === 409) return { success: true, message: "Already in qBittorrent" };
       if (!retryRes.ok) {
         return { success: false, message: `qBittorrent returned HTTP ${retryRes.status}` };
       }
