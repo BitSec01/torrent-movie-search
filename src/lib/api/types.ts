@@ -1,60 +1,3 @@
-// ── IMDb Unofficial API types ──
-
-export interface ImdbSearchResult {
-  "#TITLE": string;
-  "#YEAR": number;
-  "#IMDB_ID": string;
-  "#RANK": number;
-  "#ACTORS"?: string;
-  "#AKA"?: string;
-  "#IMDB_URL"?: string;
-  "#IMDB_IV"?: string;
-  "#IMG_POSTER"?: string;
-  photo_width?: number;
-  photo_height?: number;
-}
-
-export interface ImdbSearchResponse {
-  ok: boolean;
-  description: ImdbSearchResult[];
-  error_code?: number;
-}
-
-export interface ImdbDetailResponse {
-  ok: boolean;
-  short?: {
-    name?: string;
-    description?: string;
-    image?: string;
-    genre?: string[];
-    datePublished?: string;
-    actor?: { name: string; url?: string }[];
-    director?: { name: string; url?: string }[];
-    duration?: string;
-    contentRating?: string;
-    aggregateRating?: { ratingValue?: number; ratingCount?: number };
-    type?: string;
-  };
-  top?: {
-    id?: string;
-    title?: string;
-    type?: string;
-    year?: number;
-    runtime?: string;
-    genres?: string[];
-    plot?: string;
-    poster?: string;
-  };
-  main?: {
-    episodes?: {
-      seasons?: { number: number; episodes: { id: string; title: string; number: number; season: number; year?: number }[] }[];
-      totalEpisodes?: number;
-    };
-    cast?: { node: { name: { id: string; nameText: { text: string } }; characters?: { name: string }[] } }[];
-  };
-  [key: string]: unknown;
-}
-
 // ── OMDB API types ──
 
 export interface OmdbSearchItem {
@@ -104,11 +47,12 @@ export interface OmdbDetailResponse {
 
 // ── TMDB API types ──
 
-/** A raw /search/multi hit. Movies carry title/release_date, TV carries
- *  name/first_air_date, and people (filtered out) carry neither. */
-export interface TmdbMultiResult {
+/** A raw search hit. Movies carry title/release_date, TV carries
+ *  name/first_air_date, and people (filtered out) carry neither.
+ *  `media_type` is only present on /search/multi. */
+export interface TmdbSearchHit {
   id: number;
-  media_type: "movie" | "tv" | "person" | string;
+  media_type?: "movie" | "tv" | "person" | string;
   title?: string;
   name?: string;
   release_date?: string;
@@ -118,8 +62,8 @@ export interface TmdbMultiResult {
   vote_average?: number;
 }
 
-export interface TmdbMultiResponse {
-  results?: TmdbMultiResult[];
+export interface TmdbSearchHitResponse {
+  results?: TmdbSearchHit[];
   total_results?: number;
 }
 
@@ -127,20 +71,48 @@ export interface TmdbExternalIds {
   imdb_id?: string | null;
 }
 
-export interface TmdbFindItem {
-  id: number;
-  title?: string;
-  name?: string;
-  release_date?: string;
-  first_air_date?: string;
-  poster_path?: string | null;
-  overview?: string;
-  vote_average?: number;
+export interface TmdbFindResponse {
+  movie_results?: TmdbSearchHit[];
+  tv_results?: TmdbSearchHit[];
 }
 
-export interface TmdbFindResponse {
-  movie_results?: TmdbFindItem[];
-  tv_results?: TmdbFindItem[];
+/**
+ * The movie and TV detail endpoints return the same document with a handful of
+ * fields renamed (title/name, runtime/episode_run_time) and the certification
+ * living under a different append. Modelling both as one optional-heavy shape
+ * keeps a single mapper rather than two that drift.
+ */
+export interface TmdbTitleDetail {
+  id: number;
+  imdb_id?: string | null;
+  title?: string;
+  name?: string;
+  overview?: string;
+  poster_path?: string | null;
+  release_date?: string;
+  first_air_date?: string;
+  runtime?: number | null;
+  episode_run_time?: number[];
+  number_of_seasons?: number;
+  genres?: { id: number; name: string }[];
+  vote_average?: number;
+  vote_count?: number;
+  revenue?: number;
+  spoken_languages?: { english_name?: string; name?: string }[];
+  production_countries?: { name: string }[];
+  created_by?: { name: string }[];
+  credits?: TmdbCredits;
+  aggregate_credits?: TmdbCredits;
+  release_dates?: {
+    results?: { iso_3166_1: string; release_dates?: { certification?: string }[] }[];
+  };
+  content_ratings?: { results?: { iso_3166_1: string; rating?: string }[] };
+  external_ids?: TmdbExternalIds;
+}
+
+export interface TmdbCredits {
+  cast?: { name: string }[];
+  crew?: { name: string; job?: string }[];
 }
 
 /** Normalized TMDB search hit, already keyed on the IMDb id the rest of the app
@@ -151,8 +123,16 @@ export interface TmdbSearchItem {
   year: string;
   type: "movie" | "series";
   poster: string | null;
+  plot?: string;
 }
 
+export interface TmdbSearchResponse {
+  items: TmdbSearchItem[];
+  totalResults: number;
+}
+
+/** Normalized TMDB detail. Field-for-field what the unified detail needs, so a
+ *  title renders completely from TMDB alone. */
 export interface TmdbDetail {
   imdbId: string;
   title: string;
@@ -161,6 +141,18 @@ export interface TmdbDetail {
   poster: string | null;
   plot?: string;
   rating?: string;
+  votes?: string;
+  runtime?: string;
+  genres: string[];
+  director?: string;
+  writer?: string;
+  actors?: string;
+  language?: string;
+  country?: string;
+  released?: string;
+  rated?: string;
+  boxOffice?: string;
+  totalSeasons?: string;
 }
 
 // ── Torrent types ──
@@ -185,7 +177,7 @@ export interface UnifiedSearchResult {
   year: string;
   type: "movie" | "series" | "episode" | string;
   poster: string | null;
-  cast?: string;
+  plot?: string;
   torrentLinks?: TorrentLink[];
 }
 

@@ -1,17 +1,17 @@
 import type {
-  ImdbSearchResult,
   OmdbSearchItem,
   UnifiedSearchResult,
-  ImdbDetailResponse,
   OmdbDetailResponse,
   UnifiedDetail,
   TmdbSearchItem,
   TmdbDetail,
 } from "./types";
 
-function normalizePoster(poster: string | undefined | null): string | null {
-  if (!poster || poster === "N/A") return null;
-  return poster;
+/** OMDb writes "N/A" where it has no value, so its strings need unwrapping
+ *  before they can be treated as present. */
+function present(value: string | undefined | null): string | undefined {
+  if (!value || value === "N/A") return undefined;
+  return value;
 }
 
 function normalizeType(raw: string | undefined): string {
@@ -22,57 +22,40 @@ function normalizeType(raw: string | undefined): string {
   return "movie";
 }
 
+/**
+ * TMDB is the base layer and OMDb is additive: OMDb fills gaps and contributes
+ * titles TMDB missed, but never overwrites a value TMDB already supplied. The
+ * app therefore looks the same whether or not OMDb is configured or answering.
+ */
 export function mergeSearchResults(
-  imdbResults: ImdbSearchResult[],
-  omdbResults: OmdbSearchItem[],
-  tmdbResults: TmdbSearchItem[] = []
+  tmdbResults: TmdbSearchItem[],
+  omdbResults: OmdbSearchItem[] = []
 ): UnifiedSearchResult[] {
   const map = new Map<string, UnifiedSearchResult>();
 
-  // Add IMDb results first
-  for (const item of imdbResults) {
-    const id = item["#IMDB_ID"];
-    map.set(id, {
-      imdbId: id,
-      title: item["#TITLE"],
-      year: item["#YEAR"]?.toString() ?? "",
-      type: "movie",
-      poster: item["#IMG_POSTER"] ?? null,
-      cast: item["#ACTORS"],
+  for (const item of tmdbResults) {
+    map.set(item.imdbId, {
+      imdbId: item.imdbId,
+      title: item.title,
+      year: item.year,
+      type: item.type,
+      poster: item.poster,
+      plot: item.plot,
     });
   }
 
-  // Merge OMDB results — fill gaps or add new entries
   for (const item of omdbResults) {
     const existing = map.get(item.imdbID);
     if (existing) {
-      if (!existing.poster) existing.poster = normalizePoster(item.Poster);
-      if (!existing.year && item.Year) existing.year = item.Year;
+      if (!existing.poster) existing.poster = present(item.Poster) ?? null;
+      if (!existing.year) existing.year = item.Year;
     } else {
       map.set(item.imdbID, {
         imdbId: item.imdbID,
         title: item.Title,
         year: item.Year,
         type: normalizeType(item.Type),
-        poster: normalizePoster(item.Poster),
-      });
-    }
-  }
-
-  // Merge TMDB results — the reliable poster source, and often the only source
-  // still answering when OMDb is rate-limited and the IMDb proxy is down.
-  for (const item of tmdbResults) {
-    const existing = map.get(item.imdbId);
-    if (existing) {
-      if (!existing.poster) existing.poster = item.poster;
-      if (!existing.year && item.year) existing.year = item.year;
-    } else {
-      map.set(item.imdbId, {
-        imdbId: item.imdbId,
-        title: item.title,
-        year: item.year,
-        type: item.type,
-        poster: item.poster,
+        poster: present(item.Poster) ?? null,
       });
     }
   }
@@ -80,63 +63,51 @@ export function mergeSearchResults(
   return Array.from(map.values()).filter((item) => item.title);
 }
 
+/**
+ * Same rule as search: TMDB supplies the whole record, OMDb fills what TMDB
+ * lacks. The exceptions are the fields TMDB has no equivalent for — the Rotten
+ * Tomatoes and Metacritic scores, awards, and the IMDb rating itself — which
+ * are the reason to keep OMDb wired in at all.
+ */
 export function mergeDetail(
-  imdb: ImdbDetailResponse | null,
-  omdb: OmdbDetailResponse | null,
-  tmdb: TmdbDetail | null = null
+  tmdb: TmdbDetail | null,
+  omdb: OmdbDetailResponse | null = null
 ): UnifiedDetail | null {
-  if (!imdb && !omdb && !tmdb) return null;
+  if (!tmdb && !omdb) return null;
 
-  const short = imdb?.short;
-  const top = imdb?.top;
-
-  const title = omdb?.Title ?? short?.name ?? top?.title ?? tmdb?.title ?? "";
-  const imdbId = omdb?.imdbID ?? top?.id ?? tmdb?.imdbId ?? "";
-
-  // OMDb ratings first, then TMDB as a distinct source rather than overwriting.
   const ratings = omdb?.Ratings?.map((r) => ({ source: r.Source, value: r.Value })) ?? [];
   if (tmdb?.rating && !ratings.some((r) => r.source === "TMDB")) {
     ratings.push({ source: "TMDB", value: `${tmdb.rating}/10` });
   }
 
+  const genres = tmdb?.genres.length
+    ? tmdb.genres
+    : present(omdb?.Genre)?.split(",").map((g) => g.trim()) ?? [];
+
   return {
-    imdbId,
-    title,
-    year:
-      omdb?.Year ?? top?.year?.toString() ?? short?.datePublished?.slice(0, 4) ?? tmdb?.year ?? "",
-    rated: omdb?.Rated !== "N/A" ? omdb?.Rated : undefined,
-    released: omdb?.Released !== "N/A" ? omdb?.Released : short?.datePublished,
-    runtime: omdb?.Runtime !== "N/A" ? omdb?.Runtime : "",
-    genres:
-      omdb?.Genre && omdb.Genre !== "N/A"
-        ? omdb.Genre.split(",").map((g) => g.trim())
-        : short?.genre ?? top?.genres ?? [],
-    director: omdb?.Director !== "N/A" ? omdb?.Director : short?.director?.map((d) => d.name).join(", "),
-    writer: omdb?.Writer !== "N/A" ? omdb?.Writer : undefined,
-    actors:
-      omdb?.Actors !== "N/A"
-        ? omdb?.Actors
-        : short?.actor?.map((a) => a.name).join(", "),
-    plot:
-      (omdb?.Plot && omdb.Plot !== "N/A" ? omdb.Plot : undefined) ??
-      short?.description ??
-      top?.plot ??
-      tmdb?.plot,
-    language: omdb?.Language !== "N/A" ? omdb?.Language : undefined,
-    country: omdb?.Country !== "N/A" ? omdb?.Country : undefined,
-    awards: omdb?.Awards !== "N/A" ? omdb?.Awards : undefined,
-    poster:
-      normalizePoster(omdb?.Poster) ??
-      normalizePoster(short?.image) ??
-      normalizePoster(top?.poster) ??
-      tmdb?.poster ??
-      null,
+    imdbId: tmdb?.imdbId ?? omdb?.imdbID ?? "",
+    title: tmdb?.title || present(omdb?.Title) || "",
+    year: tmdb?.year || present(omdb?.Year) || "",
+    rated: tmdb?.rated ?? present(omdb?.Rated),
+    released: tmdb?.released ?? present(omdb?.Released),
+    runtime: tmdb?.runtime ?? present(omdb?.Runtime),
+    genres,
+    director: tmdb?.director ?? present(omdb?.Director),
+    writer: tmdb?.writer ?? present(omdb?.Writer),
+    actors: tmdb?.actors ?? present(omdb?.Actors),
+    plot: tmdb?.plot ?? present(omdb?.Plot),
+    language: tmdb?.language ?? present(omdb?.Language),
+    country: tmdb?.country ?? present(omdb?.Country),
+    awards: present(omdb?.Awards),
+    poster: tmdb?.poster ?? present(omdb?.Poster) ?? null,
     ratings,
-    imdbRating: omdb?.imdbRating !== "N/A" ? omdb?.imdbRating : short?.aggregateRating?.ratingValue?.toString(),
-    imdbVotes: omdb?.imdbVotes !== "N/A" ? omdb?.imdbVotes : short?.aggregateRating?.ratingCount?.toString(),
-    type: normalizeType(omdb?.Type ?? short?.type ?? top?.type ?? tmdb?.type),
-    boxOffice: omdb?.BoxOffice !== "N/A" ? omdb?.BoxOffice : undefined,
-    totalSeasons: omdb?.totalSeasons,
-    contentRating: short?.contentRating,
+    // TMDB's own score is already in `ratings`; imdbRating is specifically
+    // IMDb's, which only OMDb carries.
+    imdbRating: present(omdb?.imdbRating),
+    imdbVotes: present(omdb?.imdbVotes),
+    type: normalizeType(tmdb?.type ?? omdb?.Type),
+    boxOffice: tmdb?.boxOffice ?? present(omdb?.BoxOffice),
+    totalSeasons: tmdb?.totalSeasons ?? omdb?.totalSeasons,
+    contentRating: tmdb?.rated ?? present(omdb?.Rated),
   };
 }

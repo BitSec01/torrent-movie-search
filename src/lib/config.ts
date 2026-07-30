@@ -34,11 +34,27 @@ export function tpbBase(): string {
   return trimTrailingSlash(process.env.TPB_BASE || DEFAULT_TPB_BASE);
 }
 
-/** TMDB metadata source. Empty when unconfigured, in which case every TMDB
- *  lookup is skipped rather than failing — it is an optional extra source
- *  alongside OMDb and the IMDb proxy, not a dependency. */
+/** TMDB is the primary metadata source: posters, plots, cast, certifications
+ *  and TV coverage, with no daily request cap. Empty only in a deployment that
+ *  has deliberately fallen back to an OMDb-compatible host. */
 export function tmdbApiKey(): string {
   return (process.env.TMDB_API_KEY || "").trim();
+}
+
+/** OMDb is optional and additive — it contributes the Rotten Tomatoes and
+ *  Metacritic scores, awards and box office that TMDB has no equivalent for.
+ *  Empty means every OMDb lookup is skipped rather than failing. */
+export function omdbApiKey(): string {
+  return (process.env.OMDB_API_KEY || "").trim();
+}
+
+// Any host speaking OMDb's request/response shape can stand in here — the point
+// of the override is to repoint at a self-hosted OMDb-compatible API without
+// touching the client.
+const DEFAULT_OMDB_BASE = "https://www.omdbapi.com";
+
+export function omdbBase(): string {
+  return trimTrailingSlash(process.env.OMDB_BASE_URL || DEFAULT_OMDB_BASE);
 }
 
 /** Destination for a download, by content kind. Series land in the torrents

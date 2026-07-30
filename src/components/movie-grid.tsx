@@ -187,8 +187,8 @@ function ListItem({
             </span>
           )}
         </div>
-        {movie.cast && (
-          <p className="mt-1 truncate text-xs text-zinc-500">{movie.cast}</p>
+        {movie.plot && (
+          <p className="mt-1 truncate text-xs text-zinc-500">{movie.plot}</p>
         )}
         {movie.torrentLinks && movie.torrentLinks.length > 0 && (
           <p className="mt-1 flex items-center gap-1 text-xs text-emerald-400">

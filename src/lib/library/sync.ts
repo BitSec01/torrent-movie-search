@@ -7,7 +7,8 @@ import { db } from "@/db";
 import { download } from "@/db/schema";
 import { eq, and, or, lt, isNull, inArray } from "drizzle-orm";
 import { getTorrentsInfo } from "@/lib/api/qbittorrent";
-import { searchOmdb, OmdbError } from "@/lib/api/omdb";
+import { lookupTitleMetadata } from "@/lib/api/metadata";
+import { MetadataSourceError } from "@/lib/api/errors";
 
 const COMPLETE_STATES = ["uploading", "stalledUP", "forcedUP", "pausedUP"];
 
@@ -38,10 +39,10 @@ function removeOrphans(qbtHashes: Set<string>): number {
 }
 
 /**
- * A title OMDb has no match for never becomes enriched, so selecting "everything
+ * A title no source can match never becomes enriched, so selecting "everything
  * still missing" re-asks for the same dead titles on every sweep. At one sweep
- * per five minutes that is ~288 lookups per stuck row per day, against a free
- * tier of 1,000 — a handful of unmatchable rows exhausts the key on its own.
+ * per five minutes that is ~288 lookups per stuck row per day, which a metered
+ * source cannot absorb and which is pointless work even against one that can.
  */
 export const MAX_METADATA_ATTEMPTS = 3;
 export const ENRICH_BATCH = 10;
@@ -62,16 +63,15 @@ async function enrichMissingMetadata(): Promise<number> {
   let enriched = 0;
   for (const d of unenriched) {
     try {
-      const query = d.year ? `${d.title} ${d.year}` : d.title;
-      const omdbRes = await searchOmdb(query, {
+      const match = await lookupTitleMetadata(d.title, {
+        year: d.year,
         type: d.type === "series" ? "series" : "movie",
       });
-      if (omdbRes.Response === "True" && omdbRes.Search && omdbRes.Search.length > 0) {
-        const match = omdbRes.Search[0];
-        const newImdbId = !d.imdbId && match.imdbID ? match.imdbID : d.imdbId;
-        const newPoster =
-          !d.poster && match.Poster && match.Poster !== "N/A" ? match.Poster : d.poster;
-        const newYear = !d.year && match.Year ? match.Year : d.year;
+
+      if (match) {
+        const newImdbId = !d.imdbId && match.imdbId ? match.imdbId : d.imdbId;
+        const newPoster = !d.poster && match.poster ? match.poster : d.poster;
+        const newYear = !d.year && match.year ? match.year : d.year;
         if (newImdbId !== d.imdbId || newPoster !== d.poster || newYear !== d.year) {
           db.update(download)
             .set({ imdbId: newImdbId, poster: newPoster, year: newYear, updatedAt: new Date() })
@@ -80,8 +80,8 @@ async function enrichMissingMetadata(): Promise<number> {
           enriched++;
         }
       } else {
-        // OMDb answered and had nothing, so this row is a little closer to
-        // being retired. Only a real answer counts against the budget.
+        // The sources answered and had nothing, so this row is a little closer
+        // to being retired. Only a real answer counts against the budget.
         db.update(download)
           .set({ metadataAttempts: d.metadataAttempts + 1 })
           .where(eq(download.id, d.id))
@@ -90,8 +90,8 @@ async function enrichMissingMetadata(): Promise<number> {
     } catch (err) {
       // A bad key or an exhausted quota fails identically for every row, so the
       // rest of the batch would only buy the same 401 nine more times.
-      if (err instanceof OmdbError) {
-        console.error("[Sync] OMDb unavailable, abandoning enrichment:", err.message);
+      if (err instanceof MetadataSourceError) {
+        console.error("[Sync] metadata source unavailable, abandoning enrichment:", err.message);
         break;
       }
     }

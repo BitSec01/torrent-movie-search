@@ -71,9 +71,9 @@ export function MovieCard({ movie, onClick }: MovieCardProps) {
             </span>
           )}
         </div>
-        {movie.cast && (
+        {movie.plot && (
           <p className="mt-auto line-clamp-1 text-xs text-zinc-500">
-            {movie.cast}
+            {movie.plot}
           </p>
         )}
       </div>
