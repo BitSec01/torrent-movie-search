@@ -1,6 +1,6 @@
+import { omdbApiKey, omdbBase } from "@/lib/config";
+import { MetadataSourceError } from "./errors";
 import type { OmdbSearchResponse, OmdbDetailResponse } from "./types";
-
-const BASE = "https://www.omdbapi.com";
 
 /**
  * OMDb reports every key-level problem the same way: HTTP 401, with the only
@@ -8,20 +8,15 @@ const BASE = "https://www.omdbapi.com";
  * key was never activated" and "this key is out of requests for today" into one
  * message, which is the difference between clicking a link and waiting a day.
  */
-export class OmdbError extends Error {
-  constructor(
-    message: string,
-    readonly reason: "invalid-key" | "rate-limited" | "unknown"
-  ) {
-    super(message);
-    this.name = "OmdbError";
+export class OmdbError extends MetadataSourceError {
+  constructor(message: string, reason: "invalid-key" | "rate-limited" | "unknown") {
+    super("Omdb", message, reason);
   }
 }
 
-function apiKey(): string {
-  const key = process.env.OMDB_API_KEY;
-  if (!key) throw new Error("OMDB_API_KEY is not set");
-  return key;
+/** OMDb is a supplement, not a dependency — an unset key skips it entirely. */
+export function omdbConfigured(): boolean {
+  return omdbApiKey().length > 0;
 }
 
 function classify(error: string): OmdbError {
@@ -38,7 +33,7 @@ function classify(error: string): OmdbError {
 }
 
 async function request<T>(params: URLSearchParams, revalidate: number): Promise<T> {
-  const res = await fetch(`${BASE}/?${params}`, { next: { revalidate } });
+  const res = await fetch(`${omdbBase()}/?${params}`, { next: { revalidate } });
   const body = await res.json().catch(() => null);
 
   // A miss ("Movie not found!") comes back as a 200 and is an ordinary empty
@@ -53,7 +48,7 @@ export async function searchOmdb(
   options?: { type?: string; year?: string; page?: number }
 ): Promise<OmdbSearchResponse> {
   const params = new URLSearchParams({
-    apikey: apiKey(),
+    apikey: omdbApiKey(),
     s: query,
     r: "json",
   });
@@ -69,7 +64,7 @@ export async function getOmdbDetail(
   plot: "short" | "full" = "full"
 ): Promise<OmdbDetailResponse> {
   const params = new URLSearchParams({
-    apikey: apiKey(),
+    apikey: omdbApiKey(),
     i: imdbId,
     plot,
     r: "json",

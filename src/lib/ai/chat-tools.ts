@@ -10,10 +10,8 @@
 
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
-import { searchImdb } from "@/lib/api/imdb";
-import { searchOmdb } from "@/lib/api/omdb";
-import { searchTmdb, tmdbConfigured } from "@/lib/api/tmdb";
-import { mergeSearchResults } from "@/lib/api/merge";
+import { searchTitles } from "@/lib/api/metadata";
+import { attachTorrentLinks } from "@/lib/api/torrent-match";
 import { searchTorrents } from "@/lib/api/torrent";
 import { searchTPB } from "@/lib/api/tpb-scraper";
 import { rememberMagnet, resolveMagnet } from "@/lib/api/magnet-registry";
@@ -104,43 +102,19 @@ const downloadInputSchema = z.object({
   totalSeasons: z.string().optional().describe("Total seasons for series, if known"),
 });
 
-/** Strip punctuation & collapse whitespace for fuzzy title matching */
-function norm(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-}
-
 export async function executeMovieSearch({
   query,
 }: z.infer<typeof searchInputSchema>): Promise<MovieSearchOutput> {
-  const shouldQueryOmdb = query.length >= 3;
-
-  const [imdbRes, omdbRes, tmdbResults, torrentResults, tpbResults] = await Promise.all([
-    searchImdb(query).catch(() => null),
-    shouldQueryOmdb ? searchOmdb(query).catch(() => null) : Promise.resolve(null),
-    tmdbConfigured() ? searchTmdb(query).catch(() => []) : Promise.resolve([]),
+  const [metadata, torrentResults, tpbResults] = await Promise.all([
+    searchTitles(query).catch(() => ({ results: [] })),
     searchTorrents(query, "Movies", 5).catch(() => []),
     searchTPB(query, 5).catch(() => []),
   ]);
 
-  const allTorrents = withIds([...torrentResults, ...tpbResults]);
-
-  const imdbResults = imdbRes?.ok ? imdbRes.description ?? [] : [];
-  const omdbResults = omdbRes?.Response === "True" ? omdbRes.Search ?? [] : [];
-
-  const merged = mergeSearchResults(imdbResults, omdbResults, tmdbResults);
-
-  for (const movie of merged) {
-    const movieTitle = norm(movie.title);
-    const matching = allTorrents.filter((t) => {
-      const tTitle = norm(t.title);
-      const tBase = norm(t.title.split(/\s*[\(\[\{]/)[0] ?? "");
-      return tTitle.includes(movieTitle) || movieTitle.includes(tBase);
-    });
-    if (matching.length > 0) {
-      matching.sort((a, b) => b.seeds - a.seeds);
-      movie.torrentLinks = matching;
-    }
-  }
+  const merged = attachTorrentLinks(
+    metadata.results,
+    withIds([...torrentResults, ...tpbResults])
+  );
 
   return { query, results: merged.slice(0, 5), totalFound: merged.length };
 }

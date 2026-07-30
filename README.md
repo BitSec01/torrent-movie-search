@@ -12,10 +12,10 @@ A self-hosted web app for searching movies and TV series, managing torrent downl
 
 ## Features
 
-- **Multi-source search** — IMDb + OMDB merged results with posters, ratings, and torrent links
+- **Multi-source search** — TMDB metadata (optionally enriched with OMDb) merged with torrent links
 - **AI Movie Librarian** — ChatGPT-powered assistant that recommends titles, searches torrents, and starts downloads
 - **qBittorrent integration** — add magnets, track progress, real-time status
-- **Library tab** — tracks all downloads with status (downloading → completed → organised), auto-enriches missing poster/IMDb data via OMDB on each status check
+- **Library tab** — tracks all downloads with status (downloading → completed → organised), auto-enriches missing poster/IMDb data via TMDB on each status check
 - **Organise tab** — 2×2 grid view of your storage; per-folder AI organiser copies torrent files into Plex-compatible structure (Movies/Series), merging without overwriting existing files
 - **Authentication** — session-based login via Better Auth + SQLite
 
@@ -55,7 +55,8 @@ The app runs on a home server (Ubuntu 22.04, static IP `192.168.1.26`) alongside
 
 - Node.js 18+
 - A running qBittorrent instance with Web UI enabled
-- OMDB API key — [get one free](https://www.omdbapi.com/apikey.aspx)
+- TMDB API key — [register free](https://www.themoviedb.org/settings/api); a v3 key or a v4 read access token both work
+- OMDb API key (optional) — [get one free](https://www.omdbapi.com/apikey.aspx); adds Rotten Tomatoes, Metacritic and awards
 - OpenAI API key
 
 ### Setup
@@ -76,7 +77,8 @@ npm run dev       # http://localhost:3000
 BETTER_AUTH_SECRET=your-secret-key-here
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-OMDB_API_KEY=your-omdb-api-key
+TMDB_API_KEY=your-tmdb-key-or-read-access-token
+OMDB_API_KEY=            # optional
 OPENAI_API_KEY=your-openai-api-key
 
 QBITTORRENT_HOST=http://192.168.1.26:8090
@@ -304,7 +306,7 @@ src/
 │   ├── api/
 │   │   ├── chat/                    # AI chat streaming
 │   │   ├── library/
-│   │   │   ├── check/               # Poll qBittorrent + enrich OMDB metadata
+│   │   │   ├── check/               # Poll qBittorrent + enrich TMDB metadata
 │   │   │   ├── organize/            # AI organiser for library downloads
 │   │   │   ├── organize-folder/     # AI organiser for a single torrent folder
 │   │   │   ├── organize-storage/    # Batch organiser for entire torrents dir
@@ -318,7 +320,7 @@ src/
 │   ├── organize-page.tsx
 │   └── search-page.tsx
 ├── db/                              # Drizzle schema + connection
-├── lib/api/                         # IMDb, OMDB, torrent, qBittorrent clients
+├── lib/api/                         # TMDB, OMDb, torrent, qBittorrent clients
 └── scripts/
     └── deploy.sh                    # Build + rsync to server
 ```

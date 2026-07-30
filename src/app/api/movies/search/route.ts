@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchImdb } from "@/lib/api/imdb";
-import { searchOmdb } from "@/lib/api/omdb";
-import { searchTmdb, tmdbConfigured } from "@/lib/api/tmdb";
-import { mergeSearchResults } from "@/lib/api/merge";
+import { searchTitles } from "@/lib/api/metadata";
 import { searchTorrents } from "@/lib/api/torrent";
 import { searchTPB } from "@/lib/api/tpb-scraper";
-
-/** Strip punctuation & collapse whitespace for fuzzy title matching */
-function norm(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-}
+import { attachTorrentLinks } from "@/lib/api/torrent-match";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -26,30 +19,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const shouldQueryOmdb = query.length >= 3;
-
-    // Run all searches in parallel
-    const [imdbRes, omdbRes, tmdbResults, torrentResults, tpbResults] = await Promise.all([
-      searchImdb(query).catch((err) => {
-        console.error("[IMDb] search error:", err);
-        return null;
-      }),
-      shouldQueryOmdb
-        ? searchOmdb(query, {
-            type: type || undefined,
-            year: year || undefined,
-            page: page ? Number(page) : undefined,
-          }).catch((err) => {
-            console.error("[OMDB] search error:", err);
-            return null;
-          })
-        : Promise.resolve(null),
-      tmdbConfigured()
-        ? searchTmdb(query).catch((err) => {
-            console.error("[TMDB] search error:", err);
-            return [];
-          })
-        : Promise.resolve([]),
+    const [metadata, torrentResults, tpbResults] = await Promise.all([
+      searchTitles(query, { type, year, page: page ? Number(page) : undefined }),
       searchTorrents(query, type === "series" ? "TV" : "Movies", 20).catch((err) => {
         console.error("[Torrent] search error:", err);
         return [];
@@ -60,41 +31,13 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // Combine torrent-search-api results with TPB scraper results
-    const allTorrents = [...torrentResults, ...tpbResults];
+    const results = attachTorrentLinks(metadata.results, [...torrentResults, ...tpbResults]);
 
-    console.log(`[Search] q="${query}" | IMDb ok=${imdbRes?.ok}, results=${imdbRes?.description?.length ?? 0} | OMDB queried=${shouldQueryOmdb}, response=${omdbRes?.Response}, results=${omdbRes?.Search?.length ?? 0} | TMDB results=${tmdbResults.length} | torrents=${torrentResults.length} | tpb=${tpbResults.length}`);
+    console.log(
+      `[Search] q="${query}" | titles=${results.length} | torrents=${torrentResults.length} | tpb=${tpbResults.length}`
+    );
 
-    const imdbResults =
-      imdbRes?.ok ? imdbRes.description ?? [] : [];
-
-    const omdbResults =
-      omdbRes?.Response === "True" ? omdbRes.Search ?? [] : [];
-
-    const totalResults =
-      omdbRes?.totalResults ? Number(omdbRes.totalResults) : undefined;
-
-    const merged = mergeSearchResults(imdbResults, omdbResults, tmdbResults);
-
-    // Attach torrent links to matching movies by fuzzy title match
-    for (const movie of merged) {
-      const movieTitle = norm(movie.title);
-      const matching = allTorrents.filter((t) => {
-        const tTitle = norm(t.title);
-        const tBase = norm(t.title.split(/\s*[\(\[\{]/)[0] ?? "");
-        return tTitle.includes(movieTitle) || movieTitle.includes(tBase);
-      });
-      if (matching.length > 0) {
-        // Sort by seeds descending and deduplicate by magnet hash
-        matching.sort((a, b) => b.seeds - a.seeds);
-        movie.torrentLinks = matching;
-      }
-    }
-
-    // If any torrents didn't match a movie, attach them to the first result as extras
-    console.log(`[Search] q="${query}" | merged=${merged.length} results`);
-
-    return NextResponse.json({ results: merged, totalResults });
+    return NextResponse.json({ results, totalResults: metadata.totalResults });
   } catch (err) {
     console.error("Search error:", err);
     return NextResponse.json(
