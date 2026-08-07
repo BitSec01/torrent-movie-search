@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { OrganizePlanModal } from "@/components/organize-plan-modal";
+import { useTorrentStatuses } from "@/hooks/use-download-status";
 
 interface Download {
   id: string;
@@ -31,6 +32,7 @@ export function LibraryPage() {
   const [organizeItems, setOrganizeItems] = useState<Array<{ folderName: string; downloadId: string }> | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const { statusMap } = useTorrentStatuses(true);
 
   const fetchLibrary = useCallback(async () => {
     try {
@@ -210,6 +212,7 @@ export function LibraryPage() {
                   <DownloadCard
                     key={d.id}
                     download={d}
+                    progress={statusMap.get(d.hash.toLowerCase())?.progress}
                     deleting={deleting === d.id}
                     onOrganize={() => handleOrganize(d)}
                     onDelete={() => handleDelete(d.id, d.title)}
@@ -225,6 +228,7 @@ export function LibraryPage() {
                   <DownloadCard
                     key={d.id}
                     download={d}
+                    progress={statusMap.get(d.hash.toLowerCase())?.progress}
                     deleting={deleting === d.id}
                     onOrganize={() => handleOrganize(d)}
                     onDelete={() => handleDelete(d.id, d.title)}
@@ -264,7 +268,7 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, progress }: { status: string; progress?: number }) {
   const styles: Record<string, string> = {
     downloading: "bg-blue-600/20 text-blue-400",
     completed: "bg-amber-600/20 text-amber-400",
@@ -273,20 +277,25 @@ function StatusBadge({ status }: { status: string }) {
     failed: "bg-red-600/20 text-red-400",
   };
 
+  const showProgress = status === "downloading" && progress !== undefined;
+
   return (
-    <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${styles[status] ?? "bg-zinc-700 text-zinc-400"}`}>
+    <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${styles[status] ?? "bg-zinc-700 text-zinc-400"}`}>
       {status}
+      {showProgress && ` (${Math.round(progress * 100)}%)`}
     </span>
   );
 }
 
 function DownloadCard({
   download: d,
+  progress,
   deleting,
   onOrganize,
   onDelete,
 }: {
   download: Download;
+  progress?: number;
   deleting: boolean;
   onOrganize: () => void;
   onDelete: () => void;
@@ -319,7 +328,7 @@ function DownloadCard({
             <h3 className="truncate text-sm font-semibold text-zinc-200">
               {d.title}
             </h3>
-            <StatusBadge status={d.status} />
+            <StatusBadge status={d.status} progress={progress} />
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
