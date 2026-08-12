@@ -15,6 +15,7 @@ type StorageTree = Record<string, StorageItem[]>;
 
 export function OrganizePage() {
   const [tree, setTree] = useState<StorageTree | null>(null);
+  const [truncated, setTruncated] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [organizeFolder, setOrganizeFolder] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -29,6 +30,7 @@ export function OrganizePage() {
       if (res.ok) {
         const data = await res.json();
         setTree(data.tree);
+        setTruncated(data.truncated ?? []);
       }
     } catch {
       // silently fail
@@ -91,6 +93,12 @@ export function OrganizePage() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {truncated.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-900/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-300">
+            {truncated.join(", ")} {truncated.length === 1 ? "is" : "are"} too large to list in
+            full — some items are not shown.
+          </div>
+        )}
         {loading && !tree ? (
           <div className="flex items-center justify-center py-24">
             <span className="h-10 w-10 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
