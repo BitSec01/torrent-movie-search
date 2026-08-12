@@ -81,18 +81,34 @@ export function slimMovieSearch(output: MovieSearchOutput) {
 }
 
 const searchInputSchema = z.object({
-  query: z.string().describe("The movie or series title to search for"),
+  query: z
+    .string()
+    .describe(
+      "The movie or series TITLE only — never a description, plot, genre phrase or question"
+    ),
+  year: z
+    .string()
+    .optional()
+    .describe("Four-digit release year, when known. Disambiguates remakes and shared names"),
 });
 
 const searchTorrentsInputSchema = z.object({
-  query: z.string().describe("The movie or series title to search torrent sites for"),
+  query: z
+    .string()
+    .describe(
+      "The movie or series TITLE to search torrent sites for — never a description or plot"
+    ),
 });
 
 const downloadInputSchema = z.object({
   torrentId: z
     .string()
     .describe("The id of the torrent to download, taken from a searchTorrents or searchMovies result"),
-  title: z.string().describe("The name of the movie/torrent being downloaded, for display purposes"),
+  title: z
+    .string()
+    .describe(
+      "The real title of the movie or series — not the torrent's release name. This becomes the library folder name"
+    ),
   contentType: z
     .enum(["movie", "series"])
     .describe("Whether this is a movie or a series/episode, which decides the save folder"),
@@ -104,9 +120,12 @@ const downloadInputSchema = z.object({
 
 export async function executeMovieSearch({
   query,
+  year,
 }: z.infer<typeof searchInputSchema>): Promise<MovieSearchOutput> {
+  // Only the metadata sources understand a year as a filter; torrent sites just
+  // match text, and a year the release name omits would drop every hit.
   const [metadata, torrentResults, tpbResults] = await Promise.all([
-    searchTitles(query).catch(() => ({ results: [] })),
+    searchTitles(query, { year }).catch(() => ({ results: [] })),
     searchTorrents(query, "Movies", 5).catch(() => []),
     searchTPB(query, 5).catch(() => []),
   ]);
@@ -174,7 +193,7 @@ export async function executeDownload({
 export const chatTools = {
   searchMovies: tool({
     description:
-      "Search for a movie or TV series by title. Returns matching results with poster, year and type, displayed as visual cards in the UI. Search one title at a time for best results.",
+      "Look up a movie or TV series BY TITLE. Returns matching results with poster, year and type, displayed as visual cards in the UI. This is a title lookup, not a plot or semantic search: work out the title yourself from what the user described, then pass that title alone. Search one title at a time.",
     inputSchema: zodSchema(searchInputSchema),
     execute: executeMovieSearch,
     toModelOutput: ({ output }) => ({ type: "json" as const, value: slimMovieSearch(output) }),
@@ -182,7 +201,7 @@ export const chatTools = {
 
   searchTorrents: tool({
     description:
-      "Search torrent sites (ThePirateBay, etc.) for available downloads. Returns torrents with an id, title, seeds and size. Use this BEFORE downloadTorrent so you can review the list and pick the one that matches what the user actually wants.",
+      "Search torrent sites (ThePirateBay, etc.) for available downloads of a known title. Returns torrents with an id, title, seeds and size. Torrent sites match on the release name, so the query must be the title itself — a description finds nothing. Use this BEFORE downloadTorrent so you can review the list and pick the one that matches what the user actually wants.",
     inputSchema: zodSchema(searchTorrentsInputSchema),
     execute: executeTorrentSearch,
     toModelOutput: ({ output }) => ({ type: "json" as const, value: slimTorrentSearch(output) }),
