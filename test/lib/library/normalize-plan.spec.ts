@@ -191,6 +191,29 @@ describe("normalizePlan operations", () => {
     expect(result.operations[0].destRelPath).toBe("Season 01/Suits (2011) - s01e02.en.srt");
   });
 
+  it("keeps regional and forced subtitle tags apart", () => {
+    const result = normalizePlan(
+      {
+        mediaType: "movie",
+        destinationBase: MOVIES,
+        rootFolder: "Companion (2025)",
+        metadata: { title: "Companion", year: "2025" },
+        operations: [
+          { sourceAbsPath: `${TORRENTS}/c/a.srt`, destRelPath: "old name.en.srt" },
+          { sourceAbsPath: `${TORRENTS}/c/b.srt`, destRelPath: "old name.en.forced.srt" },
+          { sourceAbsPath: `${TORRENTS}/c/c.srt`, destRelPath: "old name.fr-CA.srt" },
+        ],
+      },
+      context({ releaseName: "Companion (2025) [1080p] [WEBRip]" })
+    );
+
+    expect(result.operations.map((o) => o.destRelPath)).toEqual([
+      "Companion (2025).en.srt",
+      "Companion (2025).en.forced.srt",
+      "Companion (2025).fr-ca.srt",
+    ]);
+  });
+
   it("flattens a movie to a single file named after its folder", () => {
     const result = normalizePlan(
       {

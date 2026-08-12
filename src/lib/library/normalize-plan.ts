@@ -52,12 +52,26 @@ export interface NormalizeContext {
 
 const SUBTITLE_EXTENSIONS = new Set([".srt", ".sub", ".ass", ".ssa", ".vtt", ".smi"]);
 
-/** ".en" from "Show (2011) - s01e02.en.srt", so a language tag survives renaming */
+/** A language code ("en", "fr-CA") or a track flag Plex understands */
+const SUBTITLE_TAG = /^([a-z]{2,3}(-[a-z]{2,4})?|forced|sdh|cc|hi)$/i;
+
+/**
+ * ".en", ".fr-CA" or ".en.forced" from a subtitle filename, so the tag survives
+ * renaming. Every trailing tag is kept, not just the last one: a film with
+ * both ".en.srt" and ".en.forced.srt" would otherwise rename them to the same
+ * path and lose one to the collision guard.
+ */
 function languageSuffix(fileName: string): string {
   const ext = path.extname(fileName);
   if (!SUBTITLE_EXTENSIONS.has(ext.toLowerCase())) return "";
-  const lang = path.basename(fileName, ext).match(/\.([a-z]{2,3})$/i);
-  return lang ? `.${lang[1].toLowerCase()}` : "";
+
+  const parts = path.basename(fileName, ext).split(".");
+  const tags: string[] = [];
+  while (parts.length > 1 && SUBTITLE_TAG.test(parts[parts.length - 1])) {
+    tags.unshift(parts.pop()!.toLowerCase());
+  }
+
+  return tags.length > 0 ? `.${tags.join(".")}` : "";
 }
 
 /**
