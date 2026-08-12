@@ -98,7 +98,7 @@ export async function POST() {
     addLog("SCAN", `Found ${mediaItems.length} items in torrents: ${mediaItems.join(", ")}`);
 
     // Get detailed listing
-    const detailedListing = (await walkTree(TORRENTS_DIR, 2, 200))
+    const detailedListing = (await walkTree(TORRENTS_DIR, 2, 200)).entries
       .map((e) => `${e.type === "directory" ? "d" : "f"}|${e.relPath}`)
       .join("\n");
 

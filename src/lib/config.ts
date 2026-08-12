@@ -65,11 +65,15 @@ export function savePathFor(contentType: "movie" | "series"): string {
 
 /**
  * The chat agent loops up to MAX_STEPS per message, so its per-token price is
- * multiplied by roughly an order of magnitude — it dominates the API bill and
- * wants the cheapest model that can still pick the right torrent.
+ * multiplied by roughly an order of magnitude and it dominates the API bill.
+ *
+ * Even so, not the cheapest tier: the agent's first job on a vague request is to
+ * recognise the film from a description before it searches anything, and that is
+ * recall, which the nano tier does not have. Without it the agent falls back to
+ * searching the description itself, which never matches a title.
  */
 export function chatModel(): string {
-  return process.env.CHAT_MODEL || "gpt-5.4-nano";
+  return process.env.CHAT_MODEL || "gpt-5.4-mini";
 }
 
 /**

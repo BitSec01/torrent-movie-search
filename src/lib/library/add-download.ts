@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { download } from "@/db/schema";
 import { addTorrent, extractHash } from "@/lib/api/qbittorrent";
+import { cleanTitle } from "./title";
 
 export interface AddDownloadInput {
   magnet: string;
@@ -37,13 +38,16 @@ export async function addDownload(input: AddDownloadInput): Promise<AddDownloadR
   const existing = db.select().from(download).where(eq(download.hash, hash)).get();
   if (existing) return result;
 
+  // The caller's title is often the release name it picked the torrent by. Kept
+  // raw it becomes the library card's label, the query metadata enrichment
+  // fails on, and the hint the organiser names the destination folder after.
   const now = new Date();
   db.insert(download)
     .values({
       id: randomUUID(),
       hash,
       magnet: input.magnet,
-      title: input.title,
+      title: cleanTitle(input.title) || input.title,
       year: input.year || null,
       type: input.type || "movie",
       imdbId: input.imdbId || null,

@@ -8,18 +8,29 @@ export interface WalkEntry {
   size: number;
 }
 
+export interface WalkResult {
+  entries: WalkEntry[];
+  /** The limit cut the walk short, so the listing is incomplete */
+  truncated: boolean;
+}
+
 /**
  * Depth-limited directory walk.
  *
  * This replaces `find -printf`, which is a GNU findutils extension: the app
  * runs on an Alpine image whose busybox find rejects it, so the shell version
  * silently produced nothing.
+ *
+ * `truncated` is returned rather than left implicit because a walk that stops
+ * at the limit looks exactly like a smaller library: the old 500-entry cap hid
+ * more than half of a 1140-entry Series tree from the organise page, and
+ * nothing anywhere said so.
  */
 export async function walkTree(
   root: string,
   maxDepth: number,
-  limit = 500
-): Promise<WalkEntry[]> {
+  limit = 20_000
+): Promise<WalkResult> {
   const entries: WalkEntry[] = [];
 
   const visit = async (dir: string, relBase: string, depth: number) => {
@@ -55,5 +66,5 @@ export async function walkTree(
   };
 
   await visit(root, "", 1);
-  return entries;
+  return { entries, truncated: entries.length >= limit };
 }

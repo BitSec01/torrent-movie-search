@@ -14,8 +14,11 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { readdir } from "node:fs/promises";
 import { moviesDir, organizeModel, seriesDir, torrentsDir } from "@/lib/config";
 import { sanitizePath, shellEscape } from "./paths";
+import { normalizePlan, type LibraryFolders } from "./normalize-plan";
+import { cleanTitle, declaredSeasons } from "./title";
 import type { PlanResult } from "./types";
 
 const execAsync = promisify(exec);
@@ -65,6 +68,18 @@ export async function resolveActualEntry(folderName: string): Promise<string | n
   const lower = folderName.toLowerCase();
   const ci = entries.find((e) => e.toLowerCase() === lower);
   if (ci) return ci;
+
+  // "The Chosen Season 5" and "The Chosen Season 1 to 4" share every word the
+  // fuzzy pass scores on, so without this the looser matches below resolve one
+  // to the other and organise 49 GB of the wrong seasons a second time.
+  const wanted = declaredSeasons(folderName);
+  if (wanted.length > 0) {
+    entries = entries.filter((e) => {
+      const has = declaredSeasons(e);
+      return has.length === 0 || has.some((s) => wanted.includes(s));
+    });
+    if (entries.length === 0) return null;
+  }
 
   const normTarget = normalizeName(folderName);
   const normExact = entries.find((e) => normalizeName(e) === normTarget);
@@ -117,16 +132,27 @@ const folderPlanSchema = z.object({
 
 const SYSTEM_PROMPT = `You are a Plex media library organizer. Given a list of files from a torrent download, produce a JSON plan to organize them into the correct Plex-compatible structure.
 
+NAMING THE DESTINATION FOLDER — this is the part that matters most:
+- rootFolder is the name of the WORK, never the name of the release. Use your own knowledge of the film or show to recognise the real title behind a torrent name.
+- Format: "Title (Year)". Nothing else belongs in it — no season number, no resolution, no source, no codec, no audio tag, no release group, no "Complete", no "Batch".
+  - "Ugly Betty Season 3 Complete 720p AMZN WEBRip x264" → rootFolder "Ugly Betty (2006)"
+  - "The Chosen - Season 5 - Mp4 x264 AC3 1080p" → rootFolder "The Chosen (2017)"
+- Every season of a show shares ONE rootFolder. Seasons are subfolders inside it, never sibling folders next to it.
+- Year for a series is the year the SHOW first aired, not the year of this season, and always a single four-digit year — never a range like "2017–2022" and never "Unknown". Omit the year entirely if you do not know it.
+- Punctuation in the title must match the real title exactly and consistently ("Schmigadoon!"), because a variant spelling creates a second folder.
+- If the "Existing library folders" list contains this show under any spelling, reuse that exact folder name.
+
 Rules:
-- Movies → ${DEST_BASES[0]}. rootFolder: "Title (Year)". destRelPath: "Title (Year).ext"
-- TV Series → ${DEST_BASES[1]}. rootFolder: "Show Name (Year)". destRelPath: "Season 01/Show Name (Year) - s01e01.ext"
+- Movies → ${DEST_BASES[0]}. destRelPath: "Title (Year).ext" — flat, no subfolder.
+- TV Series → ${DEST_BASES[1]}. destRelPath: "Season 01/Show Name (Year) - s01e01.ext"
+- The season folder must match the episode's own season: an s03e13 episode goes in "Season 03", never in "Season 01".
+- Anime numbered absolutely ("Show - 55.mkv") still gets sNNeMM: use your knowledge of the show's season lengths to work out which season and episode that is.
 - Keep ONLY: video files (.mkv .mp4 .avi .m4v .wmv) and subtitle files (.srt .sub .ass .ssa .vtt .smi)
 - Exclude everything else: .nfo .txt .jpg .jpeg .png .sfv .md5 .exe .dll .torrent .url and filenames containing "sample"
-- Strip from filenames: quality tags (720p 1080p 2160p 4K BluRay BrRip WEBRip WEB-DL HDTV), codecs (x264 x265 HEVC AVC), audio tags (AAC DDP5.1 Atmos), release groups (YIFY RARBG etc)
 - For subtitles: detect language from folder/filename (e.g. "English" → .en, "French" → .fr, "Dutch" → .nl, "Spanish" → .es). Default to .en if language is unknown
 - Always use two-digit padding: Season 01, s01e01
 - sourceAbsPath must be copied EXACTLY from the provided file listing — never modify or reconstruct source paths
-- If DB title/year is provided, use those exact values in rootFolder and all filenames`;
+- The DB title and year are hints taken from whatever the user was shown when they queued the download. They are frequently a raw torrent name — read the real title out of them rather than copying them verbatim.`;
 
 export interface PlanRequest {
   folderName: string;
@@ -142,6 +168,31 @@ async function listFiles(absPath: string): Promise<string> {
   } catch {
     return "";
   }
+}
+
+async function listDirNames(base: string): Promise<string[]> {
+  try {
+    const entries = await readdir(base, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
+
+/** Folder names already in the library, so a show is filed where it already lives */
+async function listLibraryFolders(): Promise<LibraryFolders> {
+  const [movies, series] = await Promise.all(DEST_BASES.map(listDirNames));
+  return { movies, series };
+}
+
+function describeLibrary({ movies, series }: LibraryFolders): string {
+  const sections = [
+    series.length ? `Existing Series folders:\n${series.join("\n")}` : "",
+    movies.length ? `Existing Movies folders:\n${movies.join("\n")}` : "",
+  ].filter(Boolean);
+
+  if (sections.length === 0) return "";
+  return `\nReuse one of these folder names verbatim if this download belongs to it:\n\n${sections.join("\n\n")}\n`;
 }
 
 export async function planFolder({ folderName, downloadId }: PlanRequest): Promise<PlanResult> {
@@ -169,13 +220,16 @@ export async function planFolder({ folderName, downloadId }: PlanRequest): Promi
 
   const cleanedName = cleanTorrentName(resolvedName);
 
-  let dbHint = "";
-  if (downloadId) {
-    const record = db.select().from(download).where(eq(download.id, downloadId)).get();
-    if (record) {
-      dbHint = `\nDB title: ${record.title}\nDB year: ${record.year ?? "unknown"}\nDB type: ${record.type}`;
-    }
-  }
+  const record = downloadId
+    ? db.select().from(download).where(eq(download.id, downloadId)).get()
+    : undefined;
+
+  const dbHint = record
+    ? `\nDB title: ${record.title}\nDB year: ${record.year ?? "unknown"}\nDB type: ${record.type}`
+    : "";
+
+  const existingFolders = await listLibraryFolders();
+  const libraryHint = describeLibrary(existingFolders);
 
   try {
     const { object } = await generateObject({
@@ -183,13 +237,21 @@ export async function planFolder({ folderName, downloadId }: PlanRequest): Promi
       schema: folderPlanSchema,
       system: SYSTEM_PROMPT,
       prompt: `Torrent folder: ${resolvedName}
-Clean name: ${cleanedName}${dbHint}
+Clean name: ${cleanedName}
+Likely title: ${cleanTitle(resolvedName)}${dbHint}${libraryHint}
 
 Files:
 ${fileListing}`,
     });
 
-    return { folderName, downloadId, ...object };
+    const normalized = normalizePlan(object, {
+      existingFolders,
+      releaseName: resolvedName,
+      dbTitle: record?.title,
+      dbYear: record?.year,
+    });
+
+    return { folderName, downloadId, ...normalized };
   } catch (err) {
     return { folderName, downloadId, error: err instanceof Error ? err.message : String(err) };
   }

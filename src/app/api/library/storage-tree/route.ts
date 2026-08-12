@@ -20,11 +20,14 @@ export async function GET() {
   try {
     const sections = ["Movies", "Series", "torrents"];
     const tree: Record<string, StorageItem[]> = {};
+    const truncated: string[] = [];
 
     for (const section of sections) {
       const sectionPath = `${STORAGE_ROOT}/${section}`;
       try {
-        const entries = await walkTree(sectionPath, 3);
+        const walked = await walkTree(sectionPath, 3);
+        if (walked.truncated) truncated.push(section);
+        const entries = walked.entries;
         const items: StorageItem[] = [];
         const dirMap = new Map<string, StorageItem>();
 
@@ -71,7 +74,7 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ tree });
+    return NextResponse.json({ tree, truncated });
   } catch (err) {
     console.error("[Storage Tree] error:", err);
     return NextResponse.json({ error: "Failed to read storage tree" }, { status: 500 });

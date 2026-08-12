@@ -72,13 +72,12 @@ describe("config", () => {
     expect(tpbBase()).toBe("https://mirror.test");
   });
 
-  it("defaults the chat model to the cheap tier, since it loops per message", () => {
-    expect(chatModel()).toBe("gpt-5.4-nano");
+  it("defaults the chat model to a tier that can name a film from a description", () => {
+    expect(chatModel()).toBe("gpt-5.4-mini");
   });
 
-  it("defaults the organiser to a more capable model than the chat agent", () => {
+  it("defaults the organiser to the same tier as the chat agent", () => {
     expect(organizeModel()).toBe("gpt-5.4-mini");
-    expect(organizeModel()).not.toBe(chatModel());
   });
 
   it("allows swapping either model without a rebuild", () => {
