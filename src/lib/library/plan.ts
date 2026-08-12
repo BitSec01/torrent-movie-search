@@ -18,7 +18,7 @@ import { readdir } from "node:fs/promises";
 import { moviesDir, organizeModel, seriesDir, torrentsDir } from "@/lib/config";
 import { sanitizePath, shellEscape } from "./paths";
 import { normalizePlan, type LibraryFolders } from "./normalize-plan";
-import { cleanTitle } from "./title";
+import { cleanTitle, declaredSeasons } from "./title";
 import type { PlanResult } from "./types";
 
 const execAsync = promisify(exec);
@@ -68,6 +68,18 @@ export async function resolveActualEntry(folderName: string): Promise<string | n
   const lower = folderName.toLowerCase();
   const ci = entries.find((e) => e.toLowerCase() === lower);
   if (ci) return ci;
+
+  // "The Chosen Season 5" and "The Chosen Season 1 to 4" share every word the
+  // fuzzy pass scores on, so without this the looser matches below resolve one
+  // to the other and organise 49 GB of the wrong seasons a second time.
+  const wanted = declaredSeasons(folderName);
+  if (wanted.length > 0) {
+    entries = entries.filter((e) => {
+      const has = declaredSeasons(e);
+      return has.length === 0 || has.some((s) => wanted.includes(s));
+    });
+    if (entries.length === 0) return null;
+  }
 
   const normTarget = normalizeName(folderName);
   const normExact = entries.find((e) => normalizeName(e) === normTarget);

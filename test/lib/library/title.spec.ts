@@ -2,6 +2,7 @@
 
 import {
   cleanTitle,
+  declaredSeasons,
   libraryFolderName,
   libraryKey,
   looksLikeReleaseName,
@@ -148,6 +149,30 @@ describe("parseSeasonEpisode", () => {
 
   it("has no answer for absolute numbering", () => {
     expect(parseSeasonEpisode("[Anime Time] Attack On Titan - 55.mkv")).toBeNull();
+  });
+});
+
+describe("declaredSeasons", () => {
+  it.each([
+    ["The Chosen - Season 5 - Mp4 x264 AC3 1080p", [5]],
+    ["The Chosen Season 1 to 4 Mp4 1080p", [1, 2, 3, 4]],
+    ["Clarksons.Farm.S05.1080p.WEBRip", [5]],
+    ["New Girl (2011) Season 01-07 S01-S07 (x265 HEVC)", [1, 2, 3, 4, 5, 6, 7]],
+    ["Schmigadoon! (2021) Season 2 S02 (1080p ATVP WEB-DL)", [2]],
+    ["The Golden Girls, Seasons 1 thru 7 Complete, X264", [1, 2, 3, 4, 5, 6, 7]],
+    ["Ugly Betty Season 2 Complete 720p AMZN WEBRip x264", [2]],
+  ])("reads the seasons in %s", (name, expected) => {
+    expect(declaredSeasons(name)).toEqual(expected);
+  });
+
+  it("declares nothing for a name that names no season", () => {
+    expect(declaredSeasons("Companion (2025) [1080p] [WEBRip]")).toEqual([]);
+  });
+
+  it("keeps a season 5 pack from matching a season 1-4 pack", () => {
+    const wanted = declaredSeasons("The Chosen - Season 5 - Mp4 x264 AC3 1080p");
+    const other = declaredSeasons("The Chosen Season 1 to 4 Mp4 1080p");
+    expect(wanted.some((s) => other.includes(s))).toBe(false);
   });
 });
 

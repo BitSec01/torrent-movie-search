@@ -186,6 +186,39 @@ export function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+const SEASON_RANGE = [
+  /\bs(\d{1,2})\s*[-–—]\s*s?(\d{1,2})\b/gi,
+  /\bseasons?\s*(\d{1,2})\s*(?:to|thru|through|[-–—])\s*(\d{1,2})\b/gi,
+];
+
+const SEASON_SINGLE = [/\bseasons?\s*(\d{1,2})\b/gi, /\bs(\d{2})(?:e\d{1,3})?\b/gi];
+
+/**
+ * Which seasons a release name says it contains.
+ *
+ * Used to keep "The Chosen Season 5" from being resolved to the folder holding
+ * "The Chosen Season 1 to 4": they share every word that matters to a fuzzy
+ * match, and the only thing telling them apart is the number.
+ */
+export function declaredSeasons(name: string): number[] {
+  const found = new Set<number>();
+
+  for (const re of SEASON_RANGE) {
+    for (const m of name.matchAll(re)) {
+      const [from, to] = [Number(m[1]), Number(m[2])];
+      if (from <= to) for (let s = from; s <= to; s++) found.add(s);
+    }
+  }
+
+  if (found.size === 0) {
+    for (const re of SEASON_SINGLE) {
+      for (const m of name.matchAll(re)) found.add(Number(m[1]));
+    }
+  }
+
+  return [...found].sort((a, b) => a - b);
+}
+
 /** "Ugly Betty" + "2006" -> "Ugly Betty (2006)" */
 export function libraryFolderName(title: string, year?: string | null): string {
   const cleaned = stripYear(cleanTitle(title)) || title.trim();
